@@ -51,7 +51,6 @@ import type { DateRange } from "react-day-picker";
 import { ticketService } from "@/services/ticket";
 import type { Ticket, TicketFilterParams, TicketAggregates } from "@/services/ticket";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
 
 export default function Tickets() {
     const [dateRangeEnabled, setDateRangeEnabled] = useState(true);
