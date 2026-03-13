@@ -110,13 +110,13 @@ function RateTypePanel({ group }: { group: RateGroup }) {
                             {label}
                         </Badge>
                     </CardTitle>
-                    <div className="flex items-center gap-4 text-base text-muted-foreground">
-                        <span className="flex items-center gap-1 font-medium">
-                            <Ticket className="h-4 w-4" />
+                    <div className="flex items-center gap-4 text-muted-foreground">
+                        <span className="flex items-center gap-1 text-lg font-bold text-primary">
+                            <Ticket className="h-5 w-5" />
                             {group.totalTickets} tickets
                         </span>
-                        <span className="flex items-center gap-1 font-semibold text-foreground">
-                            <DollarSign className="h-4 w-4" />
+                        <span className="flex items-center gap-1 text-lg font-bold text-primary">
+                            <DollarSign className="h-5 w-5" />
                             GHS {group.totalAmount.toFixed(2)}
                         </span>
                     </div>
