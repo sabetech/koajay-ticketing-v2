@@ -90,4 +90,8 @@ export const ticketService = {
         });
         return response.data.data || [];
     },
+
+    deleteTicket: async (ticketId: number): Promise<void> => {
+        await api.delete(`/ticket/${ticketId}/delete`);
+    },
 };

@@ -51,6 +51,18 @@ import type { DateRange } from "react-day-picker";
 import { ticketService } from "@/services/ticket";
 import type { Ticket, TicketFilterParams, TicketAggregates } from "@/services/ticket";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+
 
 export default function Tickets() {
     const [dateRangeEnabled, setDateRangeEnabled] = useState(true);
@@ -258,13 +270,35 @@ export default function Tickets() {
         }
     };
 
-    const handleDeleteSelected = () => {
+    const handleDeleteSelected = async () => {
         if (window.confirm(`Are you sure you want to delete ${selectedTickets.size} selected ticket(s)?`)) {
-            console.log("Deleting tickets:", Array.from(selectedTickets));
-            setTickets(prev => prev.filter(t => !selectedTickets.has(t.id)));
-            setSelectedTickets(new Set());
+            try {
+                const ticketIds = Array.from(selectedTickets);
+                await Promise.all(ticketIds.map(id => ticketService.deleteTicket(id)));
+                setTickets(prev => prev.filter(t => !selectedTickets.has(t.id)));
+                setSelectedTickets(new Set());
+                fetchAggregates(); // Refresh aggregates after deletion
+            } catch (error) {
+                console.error("Failed to delete selected tickets:", error);
+                alert("Failed to delete some tickets. Please try again.");
+            }
         }
     };
+
+    const handleDeleteTicket = async (ticketId: number) => {
+        try {
+            await ticketService.deleteTicket(ticketId);
+            setTickets(prev => prev.filter(t => t.id !== ticketId));
+            const newSelection = new Set(selectedTickets);
+            newSelection.delete(ticketId);
+            setSelectedTickets(newSelection);
+            fetchAggregates(); // Refresh aggregates after deletion
+        } catch (error) {
+            console.error("Failed to delete ticket:", error);
+            alert("Failed to delete the ticket. Please try again.");
+        }
+    };
+
 
     const AggregateCard = ({ title, value, icon: Icon, loading }: { title: string, value: string | number, icon: React.ElementType, loading: boolean }) => (
         <Card className="overflow-hidden border-none shadow-sm bg-muted/30">
@@ -573,21 +607,36 @@ export default function Tickets() {
                                                     <Button variant="ghost" size="icon" className="h-8 w-8">
                                                         <Edit2 className="h-4 w-4" />
                                                     </Button>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="h-8 w-8 text-destructive"
-                                                        onClick={() => {
-                                                            if (window.confirm("Are you sure you want to delete this ticket?")) {
-                                                                setTickets(prev => prev.filter(t => t.id !== ticket.id));
-                                                                const newSelection = new Set(selectedTickets);
-                                                                newSelection.delete(ticket.id);
-                                                                setSelectedTickets(newSelection);
-                                                            }
-                                                        }}
-                                                    >
-                                                        <Trash2 className="h-4 w-4" />
-                                                    </Button>
+                                                    <AlertDialog>
+                                                        <AlertDialogTrigger asChild>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-8 w-8 text-destructive"
+                                                            >
+                                                                <Trash2 className="h-4 w-4" />
+                                                            </Button>
+                                                        </AlertDialogTrigger>
+                                                        <AlertDialogContent>
+                                                            <AlertDialogHeader>
+                                                                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                                                <AlertDialogDescription>
+                                                                    This action cannot be undone. This will permanently delete the ticket
+                                                                    ID <strong>{ticket.title}</strong> and remove it from the database.
+                                                                </AlertDialogDescription>
+                                                            </AlertDialogHeader>
+                                                            <AlertDialogFooter>
+                                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                                <AlertDialogAction
+                                                                    onClick={() => handleDeleteTicket(ticket.id)}
+                                                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                                                >
+                                                                    Delete
+                                                                </AlertDialogAction>
+                                                            </AlertDialogFooter>
+                                                        </AlertDialogContent>
+                                                    </AlertDialog>
+
                                                 </div>
                                             </TableCell>
                                         </TableRow>
