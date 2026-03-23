@@ -21,6 +21,38 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogFooter,
+} from "@/components/ui/dialog";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Loader2, Ban } from "lucide-react";
+import { ticketService } from "@/services/ticket";
+import { ratesService } from "@/services/rates";
+import type { Rate } from "@/services/rates";
+import { parseISO } from "date-fns";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -215,6 +247,37 @@ export default function AgentDetail() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    // Edit Modal State
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [editingTicket, setEditingTicket] = useState<any | null>(null);
+    const [allRates, setAllRates] = useState<Rate[]>([]);
+    const [allAgents, setAllAgents] = useState<Agent[]>([]);
+    const [isUpdating, setIsUpdating] = useState(false);
+    const [notification, setNotification] = useState<{ message: string, type: "success" | "error" } | null>(null);
+
+    useEffect(() => {
+        if (notification) {
+            const timer = setTimeout(() => setNotification(null), 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [notification]);
+
+    useEffect(() => {
+        const loadModalData = async () => {
+            try {
+                const [ratesData, agentsData] = await Promise.all([
+                    ratesService.getRates(),
+                    agentService.getAllAgents()
+                ]);
+                setAllRates(ratesData);
+                setAllAgents(agentsData);
+            } catch (err) {
+                console.error("Failed to load modal data:", err);
+            }
+        };
+        loadModalData();
+    }, []);
+
     useEffect(() => {
         if (!id) return;
 
@@ -241,6 +304,49 @@ export default function AgentDetail() {
         fetchDetail();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id, date, fromTime, toTime]);
+
+    const handleDeleteTicket = async (ticketId: number) => {
+        try {
+            await ticketService.deleteTicket(ticketId);
+            setTickets(prev => prev.filter(t => t.id !== ticketId));
+            setGroups(groupTicketsByRateType(tickets.filter(t => t.id !== ticketId)));
+            setNotification({ message: "Ticket deleted successfully", type: "success" });
+        } catch (err) {
+            console.error("Failed to delete ticket:", err);
+            setNotification({ message: "Failed to delete the ticket", type: "error" });
+        }
+    };
+
+    const handleSaveEdit = async () => {
+        if (!editingTicket) return;
+        setIsUpdating(true);
+        try {
+            await ticketService.updateTicket(editingTicket.id, {
+                issued_date_time: editingTicket.issued_date_time,
+                car_number: editingTicket.car_number,
+                rate_id: editingTicket.rate?.id,
+                agent_id: editingTicket.agent?.id,
+                amount: editingTicket.amount,
+            });
+
+            // Re-fetch data to reflect changes
+            const fromDate = applyTime(date.from!, fromTime);
+            const toDate = applyTime(date.to ?? date.from!, toTime);
+            const fromStr = formatDateParam(fromDate);
+            const toStr = formatDateParam(toDate);
+            const data = await agentService.getAgentDetail(Number(id), fromStr, toStr);
+            setTickets(data.tickets);
+            setGroups(groupTicketsByRateType(data.tickets));
+
+            setIsEditModalOpen(false);
+            setNotification({ message: "Ticket updated successfully", type: "success" });
+        } catch (err) {
+            console.error("Failed to update ticket:", err);
+            setNotification({ message: "Failed to update ticket", type: "error" });
+        } finally {
+            setIsUpdating(false);
+        }
+    };
 
     return (
         <div className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
@@ -401,21 +507,49 @@ export default function AgentDetail() {
                                                             <TableCell>{format(new Date(ticket.issued_date_time), "MMM dd, yyyy HH:mm")}</TableCell>
                                                             <TableCell className="text-right">
                                                                 <div className="flex justify-end gap-2">
-                                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                                                                        <Edit2 className="h-4 w-4" />
-                                                                    </Button>
                                                                     <Button
                                                                         variant="ghost"
                                                                         size="icon"
-                                                                        className="h-8 w-8 text-destructive"
+                                                                        className="h-8 w-8"
                                                                         onClick={() => {
-                                                                            if (window.confirm("Are you sure you want to delete this ticket?")) {
-                                                                                setTickets(prev => prev.filter(t => t.id !== ticket.id));
-                                                                            }
+                                                                            setEditingTicket({
+                                                                                ...ticket,
+                                                                                agent: agent // Current agent
+                                                                            });
+                                                                            setIsEditModalOpen(true);
                                                                         }}
                                                                     >
-                                                                        <Trash2 className="h-4 w-4" />
+                                                                        <Edit2 className="h-4 w-4" />
                                                                     </Button>
+                                                                    <AlertDialog>
+                                                                        <AlertDialogTrigger asChild>
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="icon"
+                                                                                className="h-8 w-8 text-destructive"
+                                                                            >
+                                                                                <Trash2 className="h-4 w-4" />
+                                                                            </Button>
+                                                                        </AlertDialogTrigger>
+                                                                        <AlertDialogContent>
+                                                                            <AlertDialogHeader>
+                                                                                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                                                                <AlertDialogDescription>
+                                                                                    This action cannot be undone. This will permanently delete the ticket
+                                                                                    ID <strong>{ticket.title}</strong> and remove it from the database.
+                                                                                </AlertDialogDescription>
+                                                                            </AlertDialogHeader>
+                                                                            <AlertDialogFooter>
+                                                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                                                <AlertDialogAction
+                                                                                    onClick={() => handleDeleteTicket(ticket.id)}
+                                                                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                                                                >
+                                                                                    Delete
+                                                                                </AlertDialogAction>
+                                                                            </AlertDialogFooter>
+                                                                        </AlertDialogContent>
+                                                                    </AlertDialog>
                                                                 </div>
                                                             </TableCell>
                                                         </TableRow>
@@ -430,6 +564,135 @@ export default function AgentDetail() {
                     )}
                 </div>
             </div>
+
+            <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>Edit Ticket {editingTicket?.title && `- ${editingTicket.title}`}</DialogTitle>
+                    </DialogHeader>
+                    {editingTicket && (
+                        <div className="grid gap-4 py-4">
+                            <div className="grid gap-2">
+                                <Label htmlFor="edit-date">Date</Label>
+                                <Input
+                                    id="edit-date"
+                                    type="datetime-local"
+                                    defaultValue={editingTicket.issued_date_time ? format(parseISO(editingTicket.issued_date_time), "yyyy-MM-dd'T'HH:mm") : ""}
+                                    onChange={(e) => setEditingTicket({ ...editingTicket, issued_date_time: e.target.value })}
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="edit-car-number">Car Number</Label>
+                                <Input
+                                    id="edit-car-number"
+                                    value={editingTicket.car_number}
+                                    onChange={(e) => setEditingTicket({ ...editingTicket, car_number: e.target.value })}
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="edit-rate">Rate</Label>
+                                <Select
+                                    value={editingTicket.rate?.id?.toString() || ""}
+                                    onValueChange={(value) => {
+                                        const rate = allRates.find(r => r.id.toString() === value);
+                                        if (rate) {
+                                            setEditingTicket({
+                                                ...editingTicket,
+                                                rate: {
+                                                    ...editingTicket.rate,
+                                                    id: rate.id,
+                                                    title: rate.title,
+                                                    amount: rate.amount,
+                                                    rate_type: rate.rate_type
+                                                }
+                                            });
+                                        }
+                                    }}
+                                >
+                                    <SelectTrigger id="edit-rate">
+                                        <SelectValue placeholder="Select Rate" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {allRates.map((rate) => (
+                                            <SelectItem key={rate.id} value={rate.id.toString()}>
+                                                {rate.title} (GHS {rate.amount})
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            {editingTicket.rate?.rate_type?.toLowerCase() === "flexible" && (
+                                <div className="grid gap-2">
+                                    <Label htmlFor="edit-amount">Amount (GHS)</Label>
+                                    <Input
+                                        id="edit-amount"
+                                        type="number"
+                                        value={editingTicket.amount}
+                                        onChange={(e) => setEditingTicket({ ...editingTicket, amount: e.target.value })}
+                                    />
+                                </div>
+                            )}
+                            <div className="grid gap-2">
+                                <Label htmlFor="edit-agent">Agent</Label>
+                                <Select
+                                    value={editingTicket.agent?.id?.toString() || ""}
+                                    onValueChange={(value) => {
+                                        const agent = allAgents.find(a => a.id.toString() === value);
+                                        if (agent) {
+                                            setEditingTicket({
+                                                ...editingTicket,
+                                                agent: {
+                                                    ...editingTicket.agent,
+                                                    id: agent.id,
+                                                    fname: agent.fname,
+                                                    lname: agent.lname
+                                                }
+                                            });
+                                        }
+                                    }}
+                                >
+                                    <SelectTrigger id="edit-agent">
+                                        <SelectValue placeholder="Select Agent" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {allAgents.map((agent) => (
+                                            <SelectItem key={agent.id} value={agent.id.toString()}>
+                                                {agent.fname} {agent.lname}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>Cancel</Button>
+                        <Button
+                            onClick={handleSaveEdit}
+                            disabled={isUpdating}
+                        >
+                            {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Save Changes
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {notification && (
+                <div className={cn(
+                    "fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium shadow-lg transition-all animate-in fade-in slide-in-from-bottom-5",
+                    notification.type === "success" ? "bg-green-600 text-white" : "bg-destructive text-destructive-foreground"
+                )}>
+                    {notification.type === "success" ? (
+                        <div className="h-4 w-4 rounded-full bg-white/20 flex items-center justify-center">
+                            <span className="text-[10px]">✓</span>
+                        </div>
+                    ) : (
+                        <Ban className="h-4 w-4" />
+                    )}
+                    {notification.message}
+                </div>
+            )}
         </div>
     );
 }

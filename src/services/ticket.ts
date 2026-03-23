@@ -18,6 +18,7 @@ export interface Ticket {
         title: string;
         amount: string;
         icon: string;
+        rate_type: string;
     };
     agent: {
         id: number;
@@ -93,5 +94,15 @@ export const ticketService = {
 
     deleteTicket: async (ticketId: number): Promise<void> => {
         await api.delete(`/ticket/${ticketId}/delete`);
+    },
+
+    bulkDelete: async (ticketIds: number[]): Promise<void> => {
+        await api.post("/ticket/bulk-delete", {
+            tickets: ticketIds.join(","),
+        });
+    },
+
+    updateTicket: async (ticketId: number, data: any): Promise<void> => {
+        await api.post(`/ticket/${ticketId}/edit`, data);
     },
 };

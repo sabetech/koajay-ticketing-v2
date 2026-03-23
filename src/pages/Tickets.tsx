@@ -51,6 +51,18 @@ import type { DateRange } from "react-day-picker";
 import { ticketService } from "@/services/ticket";
 import type { Ticket, TicketFilterParams, TicketAggregates } from "@/services/ticket";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogFooter,
+} from "@/components/ui/dialog";
+import { agentService } from "@/services/agent";
+import type { Agent } from "@/services/agent";
+import { ratesService } from "@/services/rates";
+import type { Rate } from "@/services/rates";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -137,6 +149,35 @@ export default function Tickets() {
     const [hasMore, setHasMore] = useState(true);
 
     const [selectedTickets, setSelectedTickets] = useState<Set<number>>(new Set());
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [editingTicket, setEditingTicket] = useState<Ticket | null>(null);
+    const [allRates, setAllRates] = useState<Rate[]>([]);
+    const [allAgents, setAllAgents] = useState<Agent[]>([]);
+    const [isUpdating, setIsUpdating] = useState(false);
+    const [notification, setNotification] = useState<{ message: string, type: "success" | "error" } | null>(null);
+
+    useEffect(() => {
+        if (notification) {
+            const timer = setTimeout(() => setNotification(null), 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [notification]);
+
+    useEffect(() => {
+        const loadInitialData = async () => {
+            try {
+                const [rates, agents] = await Promise.all([
+                    ratesService.getRates(),
+                    agentService.getAllAgents()
+                ]);
+                setAllRates(rates);
+                setAllAgents(agents);
+            } catch (error) {
+                console.error("Failed to load initial data:", error);
+            }
+        };
+        loadInitialData();
+    }, []);
 
     const getDateRangeString = useCallback(() => {
         if (!dateRangeEnabled || !date?.from) return undefined;
@@ -271,17 +312,16 @@ export default function Tickets() {
     };
 
     const handleDeleteSelected = async () => {
-        if (window.confirm(`Are you sure you want to delete ${selectedTickets.size} selected ticket(s)?`)) {
-            try {
-                const ticketIds = Array.from(selectedTickets);
-                await Promise.all(ticketIds.map(id => ticketService.deleteTicket(id)));
-                setTickets(prev => prev.filter(t => !selectedTickets.has(t.id)));
-                setSelectedTickets(new Set());
-                fetchAggregates(); // Refresh aggregates after deletion
-            } catch (error) {
-                console.error("Failed to delete selected tickets:", error);
-                alert("Failed to delete some tickets. Please try again.");
-            }
+        try {
+            const ticketIds = Array.from(selectedTickets);
+            await ticketService.bulkDelete(ticketIds);
+            setTickets(prev => prev.filter(t => !selectedTickets.has(t.id)));
+            setSelectedTickets(new Set());
+            fetchAggregates(); // Refresh aggregates after deletion
+            setNotification({ message: "Selected tickets deleted successfully", type: "success" });
+        } catch (error) {
+            console.error("Failed to delete selected tickets:", error);
+            setNotification({ message: "Failed to delete some tickets", type: "error" });
         }
     };
 
@@ -293,9 +333,10 @@ export default function Tickets() {
             newSelection.delete(ticketId);
             setSelectedTickets(newSelection);
             fetchAggregates(); // Refresh aggregates after deletion
+            setNotification({ message: "Ticket deleted successfully", type: "success" });
         } catch (error) {
             console.error("Failed to delete ticket:", error);
-            alert("Failed to delete the ticket. Please try again.");
+            setNotification({ message: "Failed to delete the ticket", type: "error" });
         }
     };
 
@@ -518,15 +559,35 @@ export default function Tickets() {
                         </CardDescription>
                     </div>
                     {selectedTickets.size > 0 && (
-                        <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={handleDeleteSelected}
-                            className="ml-auto"
-                        >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete Selected ({selectedTickets.size})
-                        </Button>
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    className="ml-auto"
+                                >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Delete Selected ({selectedTickets.size})
+                                </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        This action cannot be undone. This will permanently delete <strong>{selectedTickets.size}</strong> selected ticket(s) and remove them from the database.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                        onClick={handleDeleteSelected}
+                                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    >
+                                        Delete
+                                    </AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
                     )}
                 </CardHeader>
                 <CardContent>
@@ -599,12 +660,29 @@ export default function Tickets() {
                                             <TableCell>{formatDateTime(ticket.issued_date_time)}</TableCell>
                                             <TableCell>{ticket.car_number}</TableCell>
                                             <TableCell>{ticket.station?.name || ticket.station_name}</TableCell>
-                                            <TableCell>{ticket.rate?.title || ticket.rate_title}</TableCell>
+                                            <TableCell>
+                                                <div className="flex flex-col gap-1">
+                                                    <span>{ticket.rate?.title || ticket.rate_title}</span>
+                                                    {ticket.rate?.rate_type && (
+                                                        <Badge variant={ticket.rate.rate_type.toLowerCase() === "fixed" ? "secondary" : "outline"} className="w-fit text-[10px] px-1 py-0 h-4">
+                                                            {ticket.rate.rate_type.charAt(0).toUpperCase() + ticket.rate.rate_type.slice(1)}
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                            </TableCell>
                                             <TableCell>{ticket.amount}</TableCell>
                                             <TableCell>{`${ticket.agent?.fname || ""} ${ticket.agent?.lname || ""}`.trim()}</TableCell>
                                             <TableCell className="text-right">
                                                 <div className="flex justify-end space-x-2">
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8"
+                                                        onClick={() => {
+                                                            setEditingTicket(ticket);
+                                                            setIsEditModalOpen(true);
+                                                        }}
+                                                    >
                                                         <Edit2 className="h-4 w-4" />
                                                     </Button>
                                                     <AlertDialog>
@@ -654,6 +732,155 @@ export default function Tickets() {
                     </div>
                 </CardContent>
             </Card>
+
+            <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>Edit Ticket {editingTicket?.title && `- ${editingTicket.title}`}</DialogTitle>
+                    </DialogHeader>
+                    {editingTicket && (
+                        <div className="grid gap-4 py-4">
+                            <div className="grid gap-2">
+                                <Label htmlFor="edit-date">Date</Label>
+                                <Input
+                                    id="edit-date"
+                                    type="datetime-local"
+                                    defaultValue={editingTicket.issued_date_time ? format(parseISO(editingTicket.issued_date_time), "yyyy-MM-dd'T'HH:mm") : ""}
+                                    onChange={(e) => setEditingTicket({ ...editingTicket, issued_date_time: e.target.value })}
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="edit-car-number">Car Number</Label>
+                                <Input
+                                    id="edit-car-number"
+                                    value={editingTicket.car_number}
+                                    onChange={(e) => setEditingTicket({ ...editingTicket, car_number: e.target.value })}
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="edit-rate">Rate</Label>
+                                <Select
+                                    value={editingTicket.rate?.id?.toString() || ""}
+                                    onValueChange={(value) => {
+                                        const rate = allRates.find(r => r.id.toString() === value);
+                                        if (rate) {
+                                            setEditingTicket({
+                                                ...editingTicket,
+                                                rate: {
+                                                    ...editingTicket.rate,
+                                                    id: rate.id,
+                                                    title: rate.title,
+                                                    amount: rate.amount,
+                                                    rate_type: rate.rate_type
+                                                }
+                                            });
+                                        }
+                                    }}
+                                >
+                                    <SelectTrigger id="edit-rate">
+                                        <SelectValue placeholder="Select Rate" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {allRates.map((rate) => (
+                                            <SelectItem key={rate.id} value={rate.id.toString()}>
+                                                {rate.title} (GHS {rate.amount})
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            {editingTicket.rate?.rate_type?.toLowerCase() === "flexible" && (
+                                <div className="grid gap-2">
+                                    <Label htmlFor="edit-amount">Amount (GHS)</Label>
+                                    <Input
+                                        id="edit-amount"
+                                        type="number"
+                                        value={editingTicket.amount}
+                                        onChange={(e) => setEditingTicket({ ...editingTicket, amount: e.target.value })}
+                                    />
+                                </div>
+                            )}
+                            <div className="grid gap-2">
+                                <Label htmlFor="edit-agent">Agent</Label>
+                                <Select
+                                    value={editingTicket.agent?.id?.toString() || ""}
+                                    onValueChange={(value) => {
+                                        const agent = allAgents.find(a => a.id.toString() === value);
+                                        if (agent) {
+                                            setEditingTicket({
+                                                ...editingTicket,
+                                                agent: {
+                                                    ...editingTicket.agent,
+                                                    id: agent.id,
+                                                    fname: agent.fname,
+                                                    lname: agent.lname
+                                                }
+                                            });
+                                        }
+                                    }}
+                                >
+                                    <SelectTrigger id="edit-agent">
+                                        <SelectValue placeholder="Select Agent" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {allAgents.map((agent) => (
+                                            <SelectItem key={agent.id} value={agent.id.toString()}>
+                                                {agent.fname} {agent.lname}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>Cancel</Button>
+                        <Button
+                            onClick={async () => {
+                                if (!editingTicket) return;
+                                setIsUpdating(true);
+                                try {
+                                    await ticketService.updateTicket(editingTicket.id, {
+                                        issued_date_time: editingTicket.issued_date_time,
+                                        car_number: editingTicket.car_number,
+                                        rate_id: editingTicket.rate?.id,
+                                        agent_id: editingTicket.agent?.id,
+                                        amount: editingTicket.amount,
+                                    });
+                                    setIsEditModalOpen(false);
+                                    fetchTickets(page, true); // Refresh current page
+                                    setNotification({ message: "Ticket updated successfully", type: "success" });
+                                } catch (error) {
+                                    console.error("Failed to update ticket:", error);
+                                    setNotification({ message: "Failed to update ticket", type: "error" });
+                                } finally {
+                                    setIsUpdating(false);
+                                }
+                            }}
+                            disabled={isUpdating}
+                        >
+                            {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Save Changes
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {notification && (
+                <div className={cn(
+                    "fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium shadow-lg transition-all animate-in fade-in slide-in-from-bottom-5",
+                    notification.type === "success" ? "bg-green-600 text-white" : "bg-destructive text-destructive-foreground"
+                )}>
+                    {notification.type === "success" ? (
+                        <div className="h-4 w-4 rounded-full bg-white/20 flex items-center justify-center">
+                            <span className="text-[10px]">✓</span>
+                        </div>
+                    ) : (
+                        <Ban className="h-4 w-4" />
+                    )}
+                    {notification.message}
+                </div>
+            )}
         </div>
     );
 }
