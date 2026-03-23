@@ -9,6 +9,7 @@ import AgentDetail from "@/pages/agents/AgentDetail";
 import StationSummary from "@/pages/StationSummary";
 import Rates from "@/pages/rates/Rates";
 import AgentRates from "@/pages/agents/AgentRates";
+import PostpaidPage from "@/pages/Postpaid";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 function App() {
@@ -31,7 +32,7 @@ function App() {
           <Route path="/stations" element={<StationSummary />} />
           <Route path="/rates" element={<Rates />} />
           <Route path="/agent-rates" element={<AgentRates />} />
-          <Route path="/postpaid" element={<PlaceholderPage title="Postpaid (On Credit)" />} />
+          <Route path="/postpaid" element={<PostpaidPage />} />
           <Route path="/payments" element={<PlaceholderPage title="Payment History" />} />
           <Route path="/users" element={<PlaceholderPage title="User Management" />} />
         </Route>
