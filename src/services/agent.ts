@@ -38,6 +38,7 @@ export interface AgentDetailTicket {
         title: string;
         icon: string;
         rate_type: "fixed" | "flexible" | "postpaid" | string;
+        is_postpaid: string;
     };
 }
 

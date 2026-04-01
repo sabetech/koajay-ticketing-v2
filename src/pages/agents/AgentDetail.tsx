@@ -87,7 +87,18 @@ function groupTicketsByRateType(tickets: AgentDetailTicket[]): RateGroup[] {
     const map = new Map<string, Map<number, { rateTitle: string; rateIcon: string; count: number; totalAmount: number }>>();
 
     for (const ticket of tickets) {
-        const rateType = ticket.rate?.rate_type ?? "unknown";
+        let rateType = ticket.rate?.rate_type ?? "unknown";
+        const isPostpaid = ticket.rate?.is_postpaid === "1";
+
+        // Category logic
+        if (rateType === "fixed" && isPostpaid) {
+            rateType = "postpaid";
+        } else if (rateType === "fixed" && !isPostpaid) {
+            rateType = "fixed";
+        } else if (rateType === "flexible" && !isPostpaid) {
+            rateType = "flexible";
+        }
+
         const rateId = ticket.rate?.id;
         if (!rateId) continue;
 
