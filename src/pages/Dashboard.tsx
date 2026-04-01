@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -253,7 +254,12 @@ export default function Dashboard() {
                                     agentStats.map((agent) => (
                                         <TableRow key={agent.agent_name}>
                                             <TableCell>
-                                                <div className="font-medium">{agent.fname}</div>
+                                                <Link
+                                                    to={`/agents/${agent.agent_name}`}
+                                                    className="font-medium text-primary hover:underline"
+                                                >
+                                                    {agent.fname}
+                                                </Link>
                                                 <div className="flex gap-1 mt-1">
                                                     <span className="text-xs px-1.5 py-0.5 rounded border-[#b7eb8f] border bg-[#f6ffed] text-[#52c41a]">
                                                         Login: {formatDateTime(agent.loggedin_at)}
@@ -307,7 +313,12 @@ export default function Dashboard() {
                                             return (
                                                 <TableRow key={item.id}>
                                                     <TableCell>
-                                                        <div className="font-medium">{`${item.agent.fname} ${item.agent.lname}`}</div>
+                                                        <Link
+                                                            to={`/agents/${item.agent.id}`}
+                                                            className="font-medium text-primary hover:underline"
+                                                        >
+                                                            {`${item.agent.fname} ${item.agent.lname}`}
+                                                        </Link>
                                                         <div className="mt-1">
                                                             <span className="text-xs px-1.5 py-0.5 rounded border-[#d9d9d9] border bg-[#fafafa] text-black">
                                                                 Logged In at: {formatDateTime(item.loggedin_at)}
