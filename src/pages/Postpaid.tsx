@@ -125,33 +125,40 @@ export default function PostpaidPage() {
             return;
         }
 
-        const discount = parseFloat(paymentDiscount) || 0;
-        const wht = parseFloat(paymentWHT) || 0;
-        const finalAmount = modalSummary.pending_amount - discount - wht;
+        const pendingAmount = modalSummary.pending_amount;
+        const discountPercent = parseFloat(paymentDiscount) || 0;
+        const whtPercent = parseFloat(paymentWHT) || 0;
+        
+        const discountAmount = (discountPercent / 100) * pendingAmount;
+        const whtAmount = (whtPercent / 100) * pendingAmount;
+        const finalAmount = pendingAmount - discountAmount - whtAmount;
+        
         const amountPaid = parseFloat(paymentAmountPaid) || 0;
 
         if (amountPaid < finalAmount) {
             alert("Amount paid must be at least the final amount to be paid.");
             return;
         }
-        
+
         setIsMakingPayment(true);
         try {
             const fromDate = modalDateRange?.from ? format(modalDateRange.from, "yyyy-MM-dd") : format(startOfDay(new Date()), "yyyy-MM-dd");
             const toDate = modalDateRange?.to ? format(modalDateRange.to, "yyyy-MM-dd") : format(endOfDay(new Date()), "yyyy-MM-dd");
-            
+
             const from = `${fromDate} ${modalStartTime}`;
             const to = `${toDate} ${modalEndTime}`;
 
             await postpaidService.makePayment({
-                rate_id: modalClientId,
+                client_id: modalClientId,
                 amount: finalAmount, // Sending the calculated final amount
-                from,
-                to,
-                discount,
-                wht
+                dateRange: {
+                    from,
+                    to,
+                },
+                discount: discountPercent,
+                tax: whtPercent
             });
-            
+
             alert("Payment processed successfully!");
             setIsPaymentModalOpen(false);
             fetchTickets(); // Refresh data
@@ -296,8 +303,8 @@ export default function PostpaidPage() {
                                 <div className="text-2xl font-bold text-amber-600">
                                     GH₵{summary?.pending_amount?.toLocaleString(undefined, { minimumFractionDigits: 2 }) ?? "0.00"}
                                 </div>
-                                <Button 
-                                    className="w-full mt-2" 
+                                <Button
+                                    className="w-full mt-2"
                                     size="sm"
                                     onClick={handleOpenPaymentModal}
                                     disabled={!summary?.pending_amount || summary.pending_amount <= 0}
@@ -372,39 +379,15 @@ export default function PostpaidPage() {
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="modalStartTime" className="text-xs">Start Time</Label>
-                                    <Input
-                                        id="modalStartTime"
-                                        type="time"
-                                        step="1"
-                                        className="h-9 text-xs"
-                                        value={modalStartTime}
-                                        onChange={(e) => setModalStartTime(e.target.value)}
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="modalEndTime" className="text-xs">End Time</Label>
-                                    <Input
-                                        id="modalEndTime"
-                                        type="time"
-                                        step="1"
-                                        className="h-9 text-xs"
-                                        value={modalEndTime}
-                                        onChange={(e) => setModalEndTime(e.target.value)}
-                                    />
-                                </div>
-                            </div>
 
                             <div className="p-3 bg-muted/30 rounded-lg space-y-2 border border-dashed">
-                                 <div className="flex justify-between text-sm">
+                                <div className="flex justify-between text-sm">
                                     <span className="text-muted-foreground">Original Pending:</span>
                                     <span className="font-medium">GH₵{modalSummary?.pending_amount?.toLocaleString(undefined, { minimumFractionDigits: 2 }) ?? "0.00"}</span>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-1.5">
-                                        <Label htmlFor="discount" className="text-[10px] uppercase font-bold text-muted-foreground">Discount (GH₵)</Label>
+                                        <Label htmlFor="discount" className="text-[10px] uppercase font-bold text-muted-foreground">Discount (%)</Label>
                                         <Input
                                             id="discount"
                                             type="number"
@@ -412,9 +395,12 @@ export default function PostpaidPage() {
                                             value={paymentDiscount}
                                             onChange={(e) => setPaymentDiscount(e.target.value)}
                                         />
+                                        <span className="text-[10px] text-muted-foreground block text-right mt-1">
+                                            - GH₵{((parseFloat(paymentDiscount) || 0) / 100 * (modalSummary?.pending_amount ?? 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                        </span>
                                     </div>
                                     <div className="space-y-1.5">
-                                        <Label htmlFor="wht" className="text-[10px] uppercase font-bold text-muted-foreground">Withholding Tax (GH₵)</Label>
+                                        <Label htmlFor="wht" className="text-[10px] uppercase font-bold text-muted-foreground">Withholding Tax (%)</Label>
                                         <Input
                                             id="wht"
                                             type="number"
@@ -422,6 +408,9 @@ export default function PostpaidPage() {
                                             value={paymentWHT}
                                             onChange={(e) => setPaymentWHT(e.target.value)}
                                         />
+                                        <span className="text-[10px] text-muted-foreground block text-right mt-1">
+                                            - GH₵{((parseFloat(paymentWHT) || 0) / 100 * (modalSummary?.pending_amount ?? 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                        </span>
                                     </div>
                                 </div>
                             </div>
@@ -430,7 +419,11 @@ export default function PostpaidPage() {
                                 <div className="flex items-center justify-between">
                                     <Label className="text-sm font-semibold">Final Amount to be Paid</Label>
                                     <Badge variant="secondary" className="text-sm font-bold bg-primary/10 text-primary px-3 py-1">
-                                        GH₵{( (modalSummary?.pending_amount ?? 0) - (parseFloat(paymentDiscount) || 0) - (parseFloat(paymentWHT) || 0) ).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                        GH₵{(
+                                            (modalSummary?.pending_amount ?? 0) - 
+                                            ((parseFloat(paymentDiscount) || 0) / 100 * (modalSummary?.pending_amount ?? 0)) - 
+                                            ((parseFloat(paymentWHT) || 0) / 100 * (modalSummary?.pending_amount ?? 0))
+                                        ).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                     </Badge>
                                 </div>
                                 <div className="space-y-1.5">
@@ -443,12 +436,20 @@ export default function PostpaidPage() {
                                         onChange={(e) => setPaymentAmountPaid(e.target.value)}
                                         className={cn(
                                             "h-10 text-lg font-bold",
-                                            (parseFloat(paymentAmountPaid) || 0) >= ((modalSummary?.pending_amount ?? 0) - (parseFloat(paymentDiscount) || 0) - (parseFloat(paymentWHT) || 0))
+                                            (parseFloat(paymentAmountPaid) || 0) >= (
+                                                (modalSummary?.pending_amount ?? 0) - 
+                                                ((parseFloat(paymentDiscount) || 0) / 100 * (modalSummary?.pending_amount ?? 0)) - 
+                                                ((parseFloat(paymentWHT) || 0) / 100 * (modalSummary?.pending_amount ?? 0))
+                                            )
                                                 ? "border-emerald-500 ring-emerald-500"
                                                 : "border-amber-500"
                                         )}
                                     />
-                                    {(parseFloat(paymentAmountPaid) || 0) < ((modalSummary?.pending_amount ?? 0) - (parseFloat(paymentDiscount) || 0) - (parseFloat(paymentWHT) || 0)) && (
+                                    {(parseFloat(paymentAmountPaid) || 0) < (
+                                        (modalSummary?.pending_amount ?? 0) - 
+                                        ((parseFloat(paymentDiscount) || 0) / 100 * (modalSummary?.pending_amount ?? 0)) - 
+                                        ((parseFloat(paymentWHT) || 0) / 100 * (modalSummary?.pending_amount ?? 0))
+                                    ) && (
                                         <p className="text-[10px] text-amber-600 font-medium">* Amount paid must cover the final amount</p>
                                     )}
                                 </div>
@@ -456,13 +457,17 @@ export default function PostpaidPage() {
                         </div>
                         <DialogFooter>
                             <Button variant="outline" onClick={() => setIsPaymentModalOpen(false)}>Cancel</Button>
-                            <Button 
+                            <Button
                                 onClick={handleConfirmPayment}
                                 disabled={
-                                    isMakingPayment || 
-                                    !modalSummary?.pending_amount || 
-                                    modalClientId === "all" || 
-                                    (parseFloat(paymentAmountPaid) || 0) < ((modalSummary?.pending_amount ?? 0) - (parseFloat(paymentDiscount) || 0) - (parseFloat(paymentWHT) || 0))
+                                    isMakingPayment ||
+                                    !modalSummary?.pending_amount ||
+                                    modalClientId === "all" ||
+                                    (parseFloat(paymentAmountPaid) || 0) < (
+                                        (modalSummary?.pending_amount ?? 0) - 
+                                        ((parseFloat(paymentDiscount) || 0) / 100 * (modalSummary?.pending_amount ?? 0)) - 
+                                        ((parseFloat(paymentWHT) || 0) / 100 * (modalSummary?.pending_amount ?? 0))
+                                    )
                                 }
                             >
                                 {isMakingPayment ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}

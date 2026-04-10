@@ -54,13 +54,15 @@ export const postpaidService = {
     },
 
     makePayment: async (data: { 
-        rate_id: string; 
+        client_id: string; 
         amount: number; 
-        from: string; 
-        to: string;
+        dateRange: {
+            from: string;
+            to: string;
+        };
         discount?: number;
-        wht?: number;
+        tax?: number;
     }): Promise<void> => {
-        await api.post("/postpaid/pay", data);
+        await api.post("/rates/makepayment", data);
     }
 };
