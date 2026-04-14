@@ -16,7 +16,7 @@ export interface PostpaidSummary {
 }
 
 export const postpaidService = {
-    getTickets: async (params: { from: string; to: string }): Promise<PostpaidTicket[]> => {
+    getTickets: async (params: { from: string; to: string; rate_title?: string }): Promise<PostpaidTicket[]> => {
         const response = await api.get<{ data: PostpaidTicket[] }>("/ticket/third-party-tickets", { params });
         return response.data.data || [];
     },

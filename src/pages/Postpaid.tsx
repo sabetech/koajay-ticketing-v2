@@ -1,11 +1,10 @@
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CreditCard, Ticket, DollarSign, CalendarIcon, Loader2, Wallet } from "lucide-react";
-import { format, startOfDay, endOfDay } from "date-fns";
+import { CreditCard, Ticket, DollarSign, Loader2, Wallet, Search } from "lucide-react";
+import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
 import {
     Select,
     SelectContent,
@@ -33,17 +32,26 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ratesService, type Rate } from "@/services/rates";
 import { postpaidService, type PostpaidSummary } from "@/services/postpaid";
-import type { DateRange } from "react-day-picker";
+
+const MONTHS = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+];
+const YEARS = Array.from({ length: 7 }, (_, i) => 2024 + i);
 
 export default function PostpaidPage() {
-    // ... Existing state ...
-    const [dateRange, setDateRange] = useState<DateRange | undefined>({
-        from: startOfDay(new Date()),
-        to: endOfDay(new Date()),
-    });
-    const [startTime, setStartTime] = useState("00:00:00");
-    const [endTime, setEndTime] = useState("23:59:59");
+    // Current date helpers
+    const now = new Date();
+    const nextMonthDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+    // Filter state
+    const [fromMonth, setFromMonth] = useState<string>(now.getMonth().toString());
+    const [fromYear, setFromYear] = useState<string>(now.getFullYear().toString());
+    const [toMonth, setToMonth] = useState<string>(nextMonthDate.getMonth().toString());
+    const [toYear, setToYear] = useState<string>(nextMonthDate.getFullYear().toString());
+    
     const [selectedClient, setSelectedClient] = useState<string>("all");
+    const [appliedClient, setAppliedClient] = useState<string>("all");
     const [postpaidRates, setPostpaidRates] = useState<Rate[]>([]);
     const [tickets, setTickets] = useState<any[]>([]);
     const [summary, setSummary] = useState<PostpaidSummary | null>(null);
@@ -52,12 +60,11 @@ export default function PostpaidPage() {
 
     // New Payment Modal State
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
-    const [modalDateRange, setModalDateRange] = useState<DateRange | undefined>({
-        from: startOfDay(new Date()),
-        to: endOfDay(new Date()),
-    });
-    const [modalStartTime, setModalStartTime] = useState("00:00:00");
-    const [modalEndTime, setModalEndTime] = useState("23:59:59");
+    const [modalFromMonth, setModalFromMonth] = useState<string>(now.getMonth().toString());
+    const [modalFromYear, setModalFromYear] = useState<string>(now.getFullYear().toString());
+    const [modalToMonth, setModalToMonth] = useState<string>(nextMonthDate.getMonth().toString());
+    const [modalToYear, setModalToYear] = useState<string>(nextMonthDate.getFullYear().toString());
+    
     const [modalClientId, setModalClientId] = useState<string>("all");
     const [paymentDiscount, setPaymentDiscount] = useState<string>("0");
     const [paymentWHT, setPaymentWHT] = useState<string>("0");
@@ -79,14 +86,20 @@ export default function PostpaidPage() {
     const fetchTickets = async () => {
         setLoading(true);
         try {
-            const fromDate = dateRange?.from ? format(dateRange.from, "yyyy-MM-dd") : format(startOfDay(new Date()), "yyyy-MM-dd");
-            const toDate = dateRange?.to ? format(dateRange.to, "yyyy-MM-dd") : format(endOfDay(new Date()), "yyyy-MM-dd");
+            const fromDateObj = new Date(parseInt(fromYear), parseInt(fromMonth), 1);
+            const toDateObj = new Date(parseInt(toYear), parseInt(toMonth), 1);
+            
+            const from = `${format(fromDateObj, "yyyy-MM-dd")} 00:00:00`;
+            const to = `${format(toDateObj, "yyyy-MM-dd")} 00:00:00`;
 
-            const from = `${fromDate} ${startTime}`;
-            const to = `${toDate} ${endTime}`;
+            const params: { from: string; to: string; rate_title?: string } = { from, to };
+            if (selectedClient !== "all") {
+                params.rate_title = selectedClient;
+            }
 
-            const data = await postpaidService.getTickets({ from, to });
+            const data = await postpaidService.getTickets(params);
             setTickets(data);
+            setAppliedClient(selectedClient);
         } catch (error) {
             console.error("Failed to fetch postpaid tickets:", error);
         } finally {
@@ -94,14 +107,15 @@ export default function PostpaidPage() {
         }
     };
 
+    // Fetch initial tickets on mount
     useEffect(() => {
         fetchTickets();
-    }, [dateRange, startTime, endTime]);
+    }, []);
 
     useEffect(() => {
-        const calculatedSummary = postpaidService.calculateSummary(tickets, selectedClient);
+        const calculatedSummary = postpaidService.calculateSummary(tickets, appliedClient);
         setSummary(calculatedSummary);
-    }, [tickets, selectedClient]);
+    }, [tickets, appliedClient]);
 
     useEffect(() => {
         const calculatedModalSummary = postpaidService.calculateSummary(tickets, modalClientId);
@@ -109,10 +123,11 @@ export default function PostpaidPage() {
     }, [tickets, modalClientId]);
 
     const handleOpenPaymentModal = () => {
-        setModalDateRange(dateRange);
-        setModalStartTime(startTime);
-        setModalEndTime(endTime);
-        setModalClientId(selectedClient);
+        setModalFromMonth(fromMonth);
+        setModalFromYear(fromYear);
+        setModalToMonth(toMonth);
+        setModalToYear(toYear);
+        setModalClientId(appliedClient);
         setPaymentDiscount("0");
         setPaymentWHT("0");
         setPaymentAmountPaid("0");
@@ -121,7 +136,7 @@ export default function PostpaidPage() {
 
     const handleConfirmPayment = async () => {
         if (!modalSummary || modalClientId === "all") {
-            alert("Please select a specific client to make a payment.");
+            toast.error("Please select a specific client to make a payment.");
             return;
         }
 
@@ -136,21 +151,21 @@ export default function PostpaidPage() {
         const amountPaid = parseFloat(paymentAmountPaid) || 0;
 
         if (amountPaid < finalAmount) {
-            alert("Amount paid must be at least the final amount to be paid.");
+            toast.error("Amount paid must be at least the final amount to be paid.");
             return;
         }
 
         setIsMakingPayment(true);
         try {
-            const fromDate = modalDateRange?.from ? format(modalDateRange.from, "yyyy-MM-dd") : format(startOfDay(new Date()), "yyyy-MM-dd");
-            const toDate = modalDateRange?.to ? format(modalDateRange.to, "yyyy-MM-dd") : format(endOfDay(new Date()), "yyyy-MM-dd");
-
-            const from = `${fromDate} ${modalStartTime}`;
-            const to = `${toDate} ${modalEndTime}`;
+            const fromDateObj = new Date(parseInt(modalFromYear), parseInt(modalFromMonth), 1);
+            const toDateObj = new Date(parseInt(modalToYear), parseInt(modalToMonth), 1);
+            
+            const from = `${format(fromDateObj, "yyyy-MM-dd")} 00:00:00`;
+            const to = `${format(toDateObj, "yyyy-MM-dd")} 00:00:00`;
 
             await postpaidService.makePayment({
                 client_id: modalClientId,
-                amount: finalAmount, // Sending the calculated final amount
+                amount: finalAmount, 
                 dateRange: {
                     from,
                     to,
@@ -159,12 +174,12 @@ export default function PostpaidPage() {
                 tax: whtPercent
             });
 
-            alert("Payment processed successfully!");
+            toast.success("Payment processed successfully!");
             setIsPaymentModalOpen(false);
-            fetchTickets(); // Refresh data
+            fetchTickets(); 
         } catch (error) {
             console.error("Payment failed:", error);
-            alert("Failed to process payment. Please try again.");
+            toast.error("Failed to process payment. Please try again.");
         } finally {
             setIsMakingPayment(false);
         }
@@ -178,71 +193,71 @@ export default function PostpaidPage() {
                     <p className="text-sm text-muted-foreground">Manage and track credit payments for corporate clients.</p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3">
-                    <Popover>
-                        <PopoverTrigger asChild>
-                            <Button
-                                variant="outline"
-                                className={cn(
-                                    "w-[260px] justify-start text-left font-normal",
-                                    !dateRange && "text-muted-foreground"
-                                )}
-                            >
-                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                {dateRange?.from ? (
-                                    dateRange.to ? (
-                                        <>
-                                            {format(dateRange.from, "LLL dd, y")} -{" "}
-                                            {format(dateRange.to, "LLL dd, y")}
-                                        </>
-                                    ) : (
-                                        format(dateRange.from, "LLL dd, y")
-                                    )
-                                ) : (
-                                    <span>Pick a date range</span>
-                                )}
-                            </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="end">
-                            <Calendar
-                                initialFocus
-                                mode="range"
-                                defaultMonth={dateRange?.from}
-                                selected={dateRange}
-                                onSelect={setDateRange}
-                                numberOfMonths={2}
-                            />
-                        </PopoverContent>
-                    </Popover>
-
-                    <div className="flex items-center gap-2 bg-muted/50 p-1 px-3 rounded-md border">
-                        <div className="grid gap-1">
-                            <Label htmlFor="startTime" className="text-[10px] uppercase font-bold text-muted-foreground">Start Time</Label>
-                            <Input
-                                id="startTime"
-                                type="time"
-                                step="1"
-                                className="h-8 w-[100px] border-none bg-transparent p-0 focus-visible:ring-0 shadow-none"
-                                value={startTime}
-                                onChange={(e) => setStartTime(e.target.value)}
-                            />
+                <div className="flex flex-wrap items-center gap-6">
+                    <div className="flex items-center gap-4 bg-muted/30 p-2 px-3 rounded-lg border border-dashed">
+                        {/* From Sector */}
+                        <div className="flex items-center gap-2">
+                            <span className="text-[10px] uppercase font-bold text-muted-foreground">From:</span>
+                            <Select value={fromMonth} onValueChange={setFromMonth}>
+                                <SelectTrigger className="w-[125px] h-8 text-xs">
+                                    <SelectValue placeholder="Month" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {MONTHS.map((month, index) => (
+                                        <SelectItem key={`from-${month}`} value={index.toString()}>
+                                            {month}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <Select value={fromYear} onValueChange={setFromYear}>
+                                <SelectTrigger className="w-[85px] h-8 text-xs">
+                                    <SelectValue placeholder="Year" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {YEARS.map(year => (
+                                        <SelectItem key={`from-${year}`} value={year.toString()}>
+                                            {year}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
-                        <div className="h-8 w-[1px] bg-border mx-1" />
-                        <div className="grid gap-1">
-                            <Label htmlFor="endTime" className="text-[10px] uppercase font-bold text-muted-foreground">End Time</Label>
-                            <Input
-                                id="endTime"
-                                type="time"
-                                step="1"
-                                className="h-8 w-[100px] border-none bg-transparent p-0 focus-visible:ring-0 shadow-none"
-                                value={endTime}
-                                onChange={(e) => setEndTime(e.target.value)}
-                            />
+
+                        <div className="w-[1px] h-4 bg-border" />
+
+                        {/* To Sector */}
+                        <div className="flex items-center gap-2">
+                        <span className="text-[10px] uppercase font-bold text-muted-foreground">To:</span>
+                            <Select value={toMonth} onValueChange={setToMonth}>
+                                <SelectTrigger className="w-[125px] h-8 text-xs">
+                                    <SelectValue placeholder="Month" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {MONTHS.map((month, index) => (
+                                        <SelectItem key={`to-${month}`} value={index.toString()}>
+                                            {month}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <Select value={toYear} onValueChange={setToYear}>
+                                <SelectTrigger className="w-[85px] h-8 text-xs">
+                                    <SelectValue placeholder="Year" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {YEARS.map(year => (
+                                        <SelectItem key={`to-${year}`} value={year.toString()}>
+                                            {year}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
                     </div>
 
                     <Select value={selectedClient} onValueChange={setSelectedClient}>
-                        <SelectTrigger className="w-[200px]">
+                        <SelectTrigger className="w-[200px] h-10">
                             <SelectValue placeholder="Filter by Client" />
                         </SelectTrigger>
                         <SelectContent>
@@ -254,6 +269,15 @@ export default function PostpaidPage() {
                             ))}
                         </SelectContent>
                     </Select>
+
+                    <Button 
+                        onClick={fetchTickets} 
+                        disabled={loading}
+                        className="h-10 px-6 gap-2"
+                    >
+                        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                        Apply Filters
+                    </Button>
                 </div>
             </div>
 
@@ -317,166 +341,6 @@ export default function PostpaidPage() {
                     </CardContent>
                 </Card>
 
-                <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
-                    <DialogContent className="sm:max-w-[500px]">
-                        <DialogHeader>
-                            <DialogTitle>Make Credit Payment</DialogTitle>
-                        </DialogHeader>
-                        <div className="grid gap-4 py-4">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label>Date Range</Label>
-                                    <Popover>
-                                        <PopoverTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                className={cn(
-                                                    "w-full justify-start text-left font-normal px-2 text-xs",
-                                                    !modalDateRange && "text-muted-foreground"
-                                                )}
-                                            >
-                                                <CalendarIcon className="mr-2 h-3 w-3" />
-                                                {modalDateRange?.from ? (
-                                                    modalDateRange.to ? (
-                                                        <>
-                                                            {format(modalDateRange.from, "MMM dd")} - {format(modalDateRange.to, "MMM dd")}
-                                                        </>
-                                                    ) : (
-                                                        format(modalDateRange.from, "MMM dd")
-                                                    )
-                                                ) : (
-                                                    <span>Pick dates</span>
-                                                )}
-                                            </Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-auto p-0" align="start">
-                                            <Calendar
-                                                initialFocus
-                                                mode="range"
-                                                defaultMonth={modalDateRange?.from}
-                                                selected={modalDateRange}
-                                                onSelect={setModalDateRange}
-                                                numberOfMonths={1}
-                                            />
-                                        </PopoverContent>
-                                    </Popover>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label>Client</Label>
-                                    <Select value={modalClientId} onValueChange={setModalClientId}>
-                                        <SelectTrigger className="w-full text-xs">
-                                            <SelectValue placeholder="Select Client" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="all">All Clients</SelectItem>
-                                            {postpaidRates.map(rate => (
-                                                <SelectItem key={rate.id} value={rate.id.toString()}>
-                                                    {rate.title}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            </div>
-
-
-                            <div className="p-3 bg-muted/30 rounded-lg space-y-2 border border-dashed">
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-muted-foreground">Original Pending:</span>
-                                    <span className="font-medium">GH₵{modalSummary?.pending_amount?.toLocaleString(undefined, { minimumFractionDigits: 2 }) ?? "0.00"}</span>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-1.5">
-                                        <Label htmlFor="discount" className="text-[10px] uppercase font-bold text-muted-foreground">Discount (%)</Label>
-                                        <Input
-                                            id="discount"
-                                            type="number"
-                                            className="h-8"
-                                            value={paymentDiscount}
-                                            onChange={(e) => setPaymentDiscount(e.target.value)}
-                                        />
-                                        <span className="text-[10px] text-muted-foreground block text-right mt-1">
-                                            - GH₵{((parseFloat(paymentDiscount) || 0) / 100 * (modalSummary?.pending_amount ?? 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                        </span>
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <Label htmlFor="wht" className="text-[10px] uppercase font-bold text-muted-foreground">Withholding Tax (%)</Label>
-                                        <Input
-                                            id="wht"
-                                            type="number"
-                                            className="h-8"
-                                            value={paymentWHT}
-                                            onChange={(e) => setPaymentWHT(e.target.value)}
-                                        />
-                                        <span className="text-[10px] text-muted-foreground block text-right mt-1">
-                                            - GH₵{((parseFloat(paymentWHT) || 0) / 100 * (modalSummary?.pending_amount ?? 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="space-y-2 pt-2">
-                                <div className="flex items-center justify-between">
-                                    <Label className="text-sm font-semibold">Final Amount to be Paid</Label>
-                                    <Badge variant="secondary" className="text-sm font-bold bg-primary/10 text-primary px-3 py-1">
-                                        GH₵{(
-                                            (modalSummary?.pending_amount ?? 0) - 
-                                            ((parseFloat(paymentDiscount) || 0) / 100 * (modalSummary?.pending_amount ?? 0)) - 
-                                            ((parseFloat(paymentWHT) || 0) / 100 * (modalSummary?.pending_amount ?? 0))
-                                        ).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                    </Badge>
-                                </div>
-                                <div className="space-y-1.5">
-                                    <Label htmlFor="amountPaid" className="text-xs font-medium">Amount Paid (GH₵)</Label>
-                                    <Input
-                                        id="amountPaid"
-                                        type="number"
-                                        placeholder="Enter amount customer is paying"
-                                        value={paymentAmountPaid}
-                                        onChange={(e) => setPaymentAmountPaid(e.target.value)}
-                                        className={cn(
-                                            "h-10 text-lg font-bold",
-                                            (parseFloat(paymentAmountPaid) || 0) >= (
-                                                (modalSummary?.pending_amount ?? 0) - 
-                                                ((parseFloat(paymentDiscount) || 0) / 100 * (modalSummary?.pending_amount ?? 0)) - 
-                                                ((parseFloat(paymentWHT) || 0) / 100 * (modalSummary?.pending_amount ?? 0))
-                                            )
-                                                ? "border-emerald-500 ring-emerald-500"
-                                                : "border-amber-500"
-                                        )}
-                                    />
-                                    {(parseFloat(paymentAmountPaid) || 0) < (
-                                        (modalSummary?.pending_amount ?? 0) - 
-                                        ((parseFloat(paymentDiscount) || 0) / 100 * (modalSummary?.pending_amount ?? 0)) - 
-                                        ((parseFloat(paymentWHT) || 0) / 100 * (modalSummary?.pending_amount ?? 0))
-                                    ) && (
-                                        <p className="text-[10px] text-amber-600 font-medium">* Amount paid must cover the final amount</p>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                        <DialogFooter>
-                            <Button variant="outline" onClick={() => setIsPaymentModalOpen(false)}>Cancel</Button>
-                            <Button
-                                onClick={handleConfirmPayment}
-                                disabled={
-                                    isMakingPayment ||
-                                    !modalSummary?.pending_amount ||
-                                    modalClientId === "all" ||
-                                    (parseFloat(paymentAmountPaid) || 0) < (
-                                        (modalSummary?.pending_amount ?? 0) - 
-                                        ((parseFloat(paymentDiscount) || 0) / 100 * (modalSummary?.pending_amount ?? 0)) - 
-                                        ((parseFloat(paymentWHT) || 0) / 100 * (modalSummary?.pending_amount ?? 0))
-                                    )
-                                }
-                            >
-                                {isMakingPayment ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                                Save Payment
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
-
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">Pending Tickets</CardTitle>
@@ -493,6 +357,197 @@ export default function PostpaidPage() {
                     </CardContent>
                 </Card>
             </div>
+
+            <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
+                <DialogContent className="sm:max-w-[550px]">
+                    <DialogHeader>
+                        <DialogTitle>Make Credit Payment</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-6 py-4">
+                        <div className="space-y-3">
+                            <Label className="text-sm font-semibold">Billing Period Range</Label>
+                            <div className="grid grid-cols-2 gap-4 bg-muted/30 p-3 rounded-lg border border-dashed">
+                                <div className="space-y-2">
+                                    <span className="text-[10px] uppercase font-bold text-muted-foreground block">From</span>
+                                    <div className="flex gap-2">
+                                        <Select value={modalFromMonth} onValueChange={setModalFromMonth}>
+                                            <SelectTrigger className="w-full h-9 text-xs">
+                                                <SelectValue placeholder="Month" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {MONTHS.map((month, index) => (
+                                                    <SelectItem key={`modal-from-${month}`} value={index.toString()}>
+                                                        {month}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+
+                                        <Select value={modalFromYear} onValueChange={setModalFromYear}>
+                                            <SelectTrigger className="w-full h-9 text-xs">
+                                                <SelectValue placeholder="Year" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {YEARS.map(year => (
+                                                    <SelectItem key={`modal-from-${year}`} value={year.toString()}>
+                                                        {year}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <span className="text-[10px] uppercase font-bold text-muted-foreground block">To (Boundary)</span>
+                                    <div className="flex gap-2">
+                                        <Select value={modalToMonth} onValueChange={setModalToMonth}>
+                                            <SelectTrigger className="w-full h-9 text-xs">
+                                                <SelectValue placeholder="Month" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {MONTHS.map((month, index) => (
+                                                    <SelectItem key={`modal-to-${month}`} value={index.toString()}>
+                                                        {month}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+
+                                        <Select value={modalToYear} onValueChange={setModalToYear}>
+                                            <SelectTrigger className="w-full h-9 text-xs">
+                                                <SelectValue placeholder="Year" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {YEARS.map(year => (
+                                                    <SelectItem key={`modal-to-${year}`} value={year.toString()}>
+                                                        {year}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>Client</Label>
+                            <Select value={modalClientId} onValueChange={setModalClientId}>
+                                <SelectTrigger className="w-full">
+                                    <SelectValue placeholder="Select Client" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All Clients</SelectItem>
+                                    {postpaidRates.map(rate => (
+                                        <SelectItem key={rate.id} value={rate.id.toString()}>
+                                            {rate.title}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="p-4 bg-muted/40 rounded-xl space-y-3 border shadow-sm">
+                            <div className="flex justify-between items-center text-sm">
+                                <span className="text-muted-foreground font-medium">Selected Period Pending:</span>
+                                <span className="font-bold text-base">GH₵{modalSummary?.pending_amount?.toLocaleString(undefined, { minimumFractionDigits: 2 }) ?? "0.00"}</span>
+                            </div>
+                            
+                            <div className="h-[1px] bg-border my-1" />
+
+                            <div className="grid grid-cols-2 gap-6">
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="discount" className="text-[10px] uppercase font-bold text-muted-foreground">Discount (%)</Label>
+                                    <Input
+                                        id="discount"
+                                        type="number"
+                                        className="h-9 font-semibold"
+                                        value={paymentDiscount}
+                                        onChange={(e) => setPaymentDiscount(e.target.value)}
+                                    />
+                                    <span className="text-[11px] text-amber-600 font-medium block text-right mt-1">
+                                        - GH₵{((parseFloat(paymentDiscount) || 0) / 100 * (modalSummary?.pending_amount ?? 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                    </span>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="wht" className="text-[10px] uppercase font-bold text-muted-foreground">Withholding Tax (%)</Label>
+                                    <Input
+                                        id="wht"
+                                        type="number"
+                                        className="h-9 font-semibold"
+                                        value={paymentWHT}
+                                        onChange={(e) => setPaymentWHT(e.target.value)}
+                                    />
+                                    <span className="text-[11px] text-amber-600 font-medium block text-right mt-1">
+                                        - GH₵{((parseFloat(paymentWHT) || 0) / 100 * (modalSummary?.pending_amount ?? 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-between p-3 bg-primary/5 rounded-lg border border-primary/10">
+                                <Label className="text-sm font-bold">Final Amount to be Paid</Label>
+                                <Badge variant="secondary" className="text-base font-black bg-primary/10 text-primary px-4 py-1.5">
+                                    GH₵{(
+                                        (modalSummary?.pending_amount ?? 0) - 
+                                        ((parseFloat(paymentDiscount) || 0) / 100 * (modalSummary?.pending_amount ?? 0)) - 
+                                        ((parseFloat(paymentWHT) || 0) / 100 * (modalSummary?.pending_amount ?? 0))
+                                    ).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                </Badge>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="amountPaid" className="text-xs font-bold text-muted-foreground uppercase">Actual Amount Paid (GH₵)</Label>
+                                <Input
+                                    id="amountPaid"
+                                    type="number"
+                                    placeholder="Enter GH₵ amount"
+                                    value={paymentAmountPaid}
+                                    onChange={(e) => setPaymentAmountPaid(e.target.value)}
+                                    className={cn(
+                                        "h-12 text-2xl font-black text-center tracking-tight",
+                                        (parseFloat(paymentAmountPaid) || 0) >= (
+                                            (modalSummary?.pending_amount ?? 0) - 
+                                            ((parseFloat(paymentDiscount) || 0) / 100 * (modalSummary?.pending_amount ?? 0)) - 
+                                            ((parseFloat(paymentWHT) || 0) / 100 * (modalSummary?.pending_amount ?? 0))
+                                        )
+                                            ? "border-emerald-500 ring-emerald-500 bg-emerald-50/30"
+                                            : "border-amber-500 bg-amber-50/30"
+                                    )}
+                                />
+                                {(parseFloat(paymentAmountPaid) || 0) < (
+                                    (modalSummary?.pending_amount ?? 0) - 
+                                    ((parseFloat(paymentDiscount) || 0) / 100 * (modalSummary?.pending_amount ?? 0)) - 
+                                    ((parseFloat(paymentWHT) || 0) / 100 * (modalSummary?.pending_amount ?? 0))
+                                ) && (
+                                    <p className="text-[11px] text-amber-700 font-bold bg-amber-100 p-2 rounded-md border border-amber-200">* Payment must cover the final calculated amount</p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter className="gap-2 sm:gap-0">
+                        <Button variant="ghost" onClick={() => setIsPaymentModalOpen(false)}>Cancel</Button>
+                        <Button
+                            className="bg-primary hover:bg-primary/90 min-w-[140px]"
+                            onClick={handleConfirmPayment}
+                            disabled={
+                                isMakingPayment ||
+                                !modalSummary?.pending_amount ||
+                                modalClientId === "all" ||
+                                (parseFloat(paymentAmountPaid) || 0) < (
+                                    (modalSummary?.pending_amount ?? 0) - 
+                                    ((parseFloat(paymentDiscount) || 0) / 100 * (modalSummary?.pending_amount ?? 0)) - 
+                                    ((parseFloat(paymentWHT) || 0) / 100 * (modalSummary?.pending_amount ?? 0))
+                                )
+                            }
+                        >
+                            {isMakingPayment ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Process Payment
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Card>
                 <CardHeader>
@@ -528,7 +583,7 @@ export default function PostpaidPage() {
                                     </TableRow>
                                 ) : (
                                     tickets
-                                        .filter(ticket => selectedClient === "all" || ticket.rate_id.toString() === selectedClient.toString())
+                                        .filter(ticket => appliedClient === "all" || ticket.rate_id.toString() === appliedClient.toString())
                                         .map((ticket) => {
                                             const isPaid = ticket.paid === 1 || ticket.paid === "1" || ticket.paid === true || ticket.paid === "true";
                                             return (

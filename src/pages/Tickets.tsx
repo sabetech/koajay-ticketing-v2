@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { toast } from "sonner";
 import {
     Card,
     CardContent,
@@ -154,14 +155,6 @@ export default function Tickets() {
     const [allRates, setAllRates] = useState<Rate[]>([]);
     const [allAgents, setAllAgents] = useState<Agent[]>([]);
     const [isUpdating, setIsUpdating] = useState(false);
-    const [notification, setNotification] = useState<{ message: string, type: "success" | "error" } | null>(null);
-
-    useEffect(() => {
-        if (notification) {
-            const timer = setTimeout(() => setNotification(null), 3000);
-            return () => clearTimeout(timer);
-        }
-    }, [notification]);
 
     useEffect(() => {
         const loadInitialData = async () => {
@@ -318,10 +311,10 @@ export default function Tickets() {
             setTickets(prev => prev.filter(t => !selectedTickets.has(t.id)));
             setSelectedTickets(new Set());
             fetchAggregates(); // Refresh aggregates after deletion
-            setNotification({ message: "Selected tickets deleted successfully", type: "success" });
+            toast.success("Selected tickets deleted successfully");
         } catch (error) {
             console.error("Failed to delete selected tickets:", error);
-            setNotification({ message: "Failed to delete some tickets", type: "error" });
+            toast.error("Failed to delete some tickets");
         }
     };
 
@@ -333,10 +326,10 @@ export default function Tickets() {
             newSelection.delete(ticketId);
             setSelectedTickets(newSelection);
             fetchAggregates(); // Refresh aggregates after deletion
-            setNotification({ message: "Ticket deleted successfully", type: "success" });
+            toast.success("Ticket deleted successfully");
         } catch (error) {
             console.error("Failed to delete ticket:", error);
-            setNotification({ message: "Failed to delete the ticket", type: "error" });
+            toast.error("Failed to delete the ticket");
         }
     };
 
@@ -849,10 +842,10 @@ export default function Tickets() {
                                     });
                                     setIsEditModalOpen(false);
                                     fetchTickets(page, true); // Refresh current page
-                                    setNotification({ message: "Ticket updated successfully", type: "success" });
+                                    toast.success("Ticket updated successfully");
                                 } catch (error) {
                                     console.error("Failed to update ticket:", error);
-                                    setNotification({ message: "Failed to update ticket", type: "error" });
+                                    toast.error("Failed to update ticket");
                                 } finally {
                                     setIsUpdating(false);
                                 }
@@ -865,22 +858,6 @@ export default function Tickets() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-
-            {notification && (
-                <div className={cn(
-                    "fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium shadow-lg transition-all animate-in fade-in slide-in-from-bottom-5",
-                    notification.type === "success" ? "bg-green-600 text-white" : "bg-destructive text-destructive-foreground"
-                )}>
-                    {notification.type === "success" ? (
-                        <div className="h-4 w-4 rounded-full bg-white/20 flex items-center justify-center">
-                            <span className="text-[10px]">✓</span>
-                        </div>
-                    ) : (
-                        <Ban className="h-4 w-4" />
-                    )}
-                    {notification.message}
-                </div>
-            )}
         </div>
     );
 }
