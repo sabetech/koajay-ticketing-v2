@@ -64,5 +64,11 @@ export const postpaidService = {
         tax?: number;
     }): Promise<void> => {
         await api.post("/rates/makepayment", data);
+    },
+
+    getPaymentHistory: async (params: { from: string; to: string; client_id?: string }): Promise<any[]> => {
+        const response = await api.get<{ data: any[] }>("/rates/paymentHistory", { params });
+        // The endpoint may wrap the array in response.data or response.data.data
+        return response.data?.data || response.data || [];
     }
 };
