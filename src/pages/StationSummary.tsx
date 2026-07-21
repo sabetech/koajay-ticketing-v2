@@ -3,18 +3,21 @@ import { format, setHours, setMinutes, setSeconds, startOfDay, endOfDay } from "
 import type { DateRange } from "react-day-picker";
 import { stationService } from "@/services/station";
 import type { StationSummaryItem } from "@/services/station";
+import { ticketService } from "@/services/ticket";
+import type { Ticket } from "@/services/ticket";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { CalendarIcon, Ticket, DollarSign } from "lucide-react";
+import { CalendarIcon, Ticket as TicketIcon, DollarSign, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface RateGroup {
     rateType: string;
     items: {
+        rate_id: string;
         title: string;
         icon: string;
         ticketCount: number;
@@ -47,7 +50,7 @@ function groupByStation(items: StationSummaryItem[]): Map<string, StationSummary
 }
 
 function groupByRateType(items: StationSummaryItem[]): RateGroup[] {
-    const map = new Map<string, Map<string, { title: string; icon: string; ticketCount: number; totalAmount: number }>>();
+    const map = new Map<string, Map<string, { rate_id: string; title: string; icon: string; ticketCount: number; totalAmount: number }>>();
 
     for (const item of items) {
         const rateType = item.is_postpaid === "1" ? "postpaid" : (item.rate_type ?? "unknown");
@@ -58,6 +61,7 @@ function groupByRateType(items: StationSummaryItem[]): RateGroup[] {
         const key = `${item.rate_id}-${item.title}`;
         if (!rateMap.has(key)) {
             rateMap.set(key, {
+                rate_id: item.rate_id,
                 title: item.title,
                 icon: item.icon,
                 ticketCount: 0,
@@ -97,7 +101,104 @@ function applyTime(date: Date, time: string): Date {
     return setSeconds(setMinutes(setHours(date, h || 0), m || 0), 0);
 }
 
-function RateTypePanel({ group }: { group: RateGroup }) {
+function RateAccordionRow({
+    item,
+    dateRange,
+}: {
+    item: { rate_id: string; title: string; icon: string; ticketCount: number; totalAmount: number };
+    dateRange: string;
+}) {
+    const [open, setOpen] = useState(false);
+    const [tickets, setTickets] = useState<Ticket[]>([]);
+    const [loading, setLoading] = useState(false);
+
+    const handleToggle = async () => {
+        if (!open && tickets.length === 0) {
+            setLoading(true);
+            try {
+                const result = await ticketService.getTicketsByRateRange(dateRange, item.rate_id);
+                setTickets(result);
+            } catch (err) {
+                console.error("Failed to fetch tickets:", err);
+            } finally {
+                setLoading(false);
+            }
+        }
+        setOpen(!open);
+    };
+
+    return (
+        <div>
+            <div
+                className="flex items-center justify-between py-3 first:pt-0 last:pb-0 cursor-pointer hover:bg-muted/50 px-2 -mx-2 rounded transition-colors"
+                onClick={handleToggle}
+            >
+                <div className="flex items-center gap-3">
+                    {item.icon ? (
+                        <img
+                            src={item.icon}
+                            alt={item.title}
+                            className="h-8 w-8 rounded object-cover"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                        />
+                    ) : (
+                        <div className="h-8 w-8 rounded bg-muted flex items-center justify-center">
+                            <TicketIcon className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                    )}
+                    <span className="text-sm font-medium">{item.title}</span>
+                </div>
+                <div className="flex items-center gap-6 text-sm">
+                    <span className="text-muted-foreground">{item.ticketCount} tickets</span>
+                    <span className="font-semibold w-24 text-right">
+                        GHS {item.totalAmount.toFixed(2)}
+                    </span>
+                    <ChevronDown
+                        className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+                    />
+                </div>
+            </div>
+            {open && (
+                <div className="max-h-60 overflow-y-auto border-t pl-4">
+                    {loading ? (
+                        <div className="py-4 space-y-2">
+                            <Skeleton className="h-6 w-full" />
+                            <Skeleton className="h-6 w-full" />
+                            <Skeleton className="h-6 w-full" />
+                        </div>
+                    ) : tickets.length === 0 ? (
+                        <p className="text-sm text-muted-foreground py-3">No tickets found</p>
+                    ) : (
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="text-left text-muted-foreground border-b">
+                                    <th className="py-3 pr-2 font-medium">Ticket ID</th>
+                                    <th className="py-3 pr-2 font-medium">Car Number</th>
+                                    <th className="py-3 pr-2 font-medium">Agent</th>
+                                    <th className="py-3 font-medium">Date/Time</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {tickets.map((ticket) => (
+                                    <tr key={ticket.id} className="border-b last:border-0 hover:bg-muted/30">
+                                        <td className="py-3 pr-2 font-mono text-xs">{ticket.id}</td>
+                                        <td className="py-3 pr-2">{ticket.car_number}</td>
+                                        <td className="py-3 pr-2">{ticket.agent.fname} {ticket.agent.lname}</td>
+                                        <td className="py-3">
+                                            {format(new Date(ticket.issued_date_time), "MMM dd, yyyy HH:mm")}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function RateTypePanel({ group, dateRange }: { group: RateGroup; dateRange: string }) {
     const label = RATE_TYPE_LABELS[group.rateType] ?? group.rateType;
     const colorClass = RATE_TYPE_COLORS[group.rateType] ?? "bg-gray-100 text-gray-600 border-gray-200";
 
@@ -112,7 +213,7 @@ function RateTypePanel({ group }: { group: RateGroup }) {
                     </CardTitle>
                     <div className="flex items-center gap-4 text-muted-foreground">
                         <span className="flex items-center gap-1 text-lg font-bold text-primary">
-                            <Ticket className="h-5 w-5" />
+                            <TicketIcon className="h-5 w-5" />
                             {group.totalTickets} tickets
                         </span>
                         <span className="flex items-center gap-1 text-lg font-bold text-primary">
@@ -125,29 +226,7 @@ function RateTypePanel({ group }: { group: RateGroup }) {
             <CardContent>
                 <div className="divide-y">
                     {group.items.map((item, idx) => (
-                        <div key={idx} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
-                            <div className="flex items-center gap-3">
-                                {item.icon ? (
-                                    <img
-                                        src={item.icon}
-                                        alt={item.title}
-                                        className="h-8 w-8 rounded object-cover"
-                                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                                    />
-                                ) : (
-                                    <div className="h-8 w-8 rounded bg-muted flex items-center justify-center">
-                                        <Ticket className="h-4 w-4 text-muted-foreground" />
-                                    </div>
-                                )}
-                                <span className="text-sm font-medium">{item.title}</span>
-                            </div>
-                            <div className="flex items-center gap-6 text-sm">
-                                <span className="text-muted-foreground">{item.ticketCount} tickets</span>
-                                <span className="font-semibold w-24 text-right">
-                                    GHS {item.totalAmount.toFixed(2)}
-                                </span>
-                            </div>
-                        </div>
+                        <RateAccordionRow key={idx} item={item} dateRange={dateRange} />
                     ))}
                 </div>
             </CardContent>
@@ -167,9 +246,14 @@ export default function StationSummary() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selectedStation, setSelectedStation] = useState<string | null>(null);
+    const [queryFrom, setQueryFrom] = useState("");
+    const [queryTo, setQueryTo] = useState("");
 
     const stations = useMemo(() => groupByStation(data), [data]);
     const stationNames = useMemo(() => Array.from(stations.keys()), [stations]);
+    const dateRange = useMemo(() => {
+        return queryFrom && queryTo ? `${queryFrom.replace(" ", "+")},${queryTo.replace(" ", "+")}` : "";
+    }, [queryFrom, queryTo]);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -181,6 +265,8 @@ export default function StationSummary() {
                 const toDate = applyTime(date.to ?? date.from, toTime);
                 const from = formatDateParam(fromDate);
                 const to = formatDateParam(toDate);
+                setQueryFrom(from);
+                setQueryTo(to);
                 const result = await stationService.getStationSummary(from, to);
                 setData(result);
                 if (result.length > 0 && !selectedStation) {
@@ -337,7 +423,7 @@ export default function StationSummary() {
                                         <Card className="bg-primary/5 border-primary/20">
                                             <CardContent className="flex items-center justify-between py-4">
                                                 <div className="flex items-center gap-2">
-                                                    <Ticket className="h-5 w-5 text-primary" />
+                                                    <TicketIcon className="h-5 w-5 text-primary" />
                                                     <span className="font-medium">Total Tickets</span>
                                                 </div>
                                                 <span className="text-2xl font-bold">{totalTickets}</span>
@@ -356,7 +442,7 @@ export default function StationSummary() {
                                 );
                             })()}
                             {getStationGroups(selectedStation).map((group) => (
-                                <RateTypePanel key={group.rateType} group={group} />
+                                <RateTypePanel key={group.rateType} group={group} dateRange={dateRange} />
                             ))}
                         </div>
                     )}

@@ -105,4 +105,11 @@ export const ticketService = {
     updateTicket: async (ticketId: number, data: any): Promise<void> => {
         await api.post(`/ticket/${ticketId}/edit`, data);
     },
+
+    getTicketsByRateRange: async (dateRange: string, rateTitle: string): Promise<Ticket[]> => {
+        const response = await api.get<{ data: Ticket[] }>("/ticket/range", {
+            params: { date_range: dateRange, rate_title: rateTitle },
+        });
+        return response.data.data;
+    },
 };
