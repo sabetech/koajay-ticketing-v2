@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { format, setHours, setMinutes, setSeconds, startOfDay, endOfDay } from "date-fns";
 import type { DateRange } from "react-day-picker";
@@ -241,6 +241,35 @@ function RateTypePanel({ group }: { group: RateGroup }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+function AgentTotalsSummary({ totalTickets, totalAmount }: { totalTickets: number; totalAmount: number }) {
+    return (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Card>
+                <CardContent className="flex items-center gap-4 p-5">
+                    <div className="h-11 w-11 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <Ticket className="h-5 w-5 text-primary" />
+                    </div>
+                    <div className="min-w-0">
+                        <p className="text-sm text-muted-foreground">Total Tickets</p>
+                        <p className="text-2xl font-bold tabular-nums">{totalTickets}</p>
+                    </div>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardContent className="flex items-center gap-4 p-5">
+                    <div className="h-11 w-11 rounded-lg bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+                        <DollarSign className="h-5 w-5 text-emerald-600" />
+                    </div>
+                    <div className="min-w-0">
+                        <p className="text-sm text-muted-foreground">Total Amount</p>
+                        <p className="text-2xl font-bold tabular-nums">GHS {totalAmount.toFixed(2)}</p>
+                    </div>
+                </CardContent>
+            </Card>
+        </div>
+    );
+}
+
 export default function AgentDetail() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
@@ -265,6 +294,11 @@ export default function AgentDetail() {
     const [allAgents, setAllAgents] = useState<Agent[]>([]);
     const [isUpdating, setIsUpdating] = useState(false);
     const [notification, setNotification] = useState<{ message: string, type: "success" | "error" } | null>(null);
+
+    const totals = useMemo(() => ({
+        count: tickets.length,
+        amount: tickets.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0),
+    }), [tickets]);
 
     useEffect(() => {
         if (notification) {
@@ -452,6 +486,25 @@ export default function AgentDetail() {
                             </PopoverContent>
                         </Popover>
                     </div>
+
+                    {/* Totals summary */}
+                    {loading ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {[1, 2].map((i) => (
+                                <Card key={i}>
+                                    <CardContent className="flex items-center gap-4 p-5">
+                                        <Skeleton className="h-11 w-11 rounded-lg" />
+                                        <div className="space-y-2 flex-1">
+                                            <Skeleton className="h-4 w-24" />
+                                            <Skeleton className="h-7 w-20" />
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            ))}
+                        </div>
+                    ) : (
+                        <AgentTotalsSummary totalTickets={totals.count} totalAmount={totals.amount} />
+                    )}
 
                     {/* Error */}
                     {error && (

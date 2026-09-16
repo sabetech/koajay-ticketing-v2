@@ -15,6 +15,14 @@ api.interceptors.request.use(
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
+        // Let the browser set the multipart boundary for FormData uploads.
+        // A manually-set Content-Type (application/json default or
+        // "multipart/form-data" without boundary) arrives without a boundary,
+        // so PHP/Laravel sees no file and validation fails with
+        // "The user image must be an image."
+        if (config.data instanceof FormData) {
+            delete config.headers["Content-Type"];
+        }
         return config;
     },
     (error) => {

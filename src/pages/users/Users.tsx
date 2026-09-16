@@ -72,6 +72,7 @@ export default function Users() {
     const [editFormData, setEditFormData] = useState({
         fname: "",
         lname: "",
+        email: "",
         phone: "",
         password: "",
     });
@@ -94,6 +95,7 @@ export default function Users() {
             setEditFormData({
                 fname: userToEdit.fname || "",
                 lname: userToEdit.lname || "",
+                email: userToEdit.email || "",
                 phone: userToEdit.phone || "",
                 password: "", // Always empty initially for security
             });
@@ -121,15 +123,29 @@ export default function Users() {
     };
 
     const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            setSelectedPhoto(e.target.files[0]);
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (!file.type.startsWith("image/")) {
+            setFormError("Please select a valid image file (JPG, PNG, GIF, etc.).");
+            e.target.value = "";
+            setSelectedPhoto(null);
+            return;
         }
+        setFormError(null);
+        setSelectedPhoto(file);
     };
 
     const handleEditPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            setEditPhoto(e.target.files[0]);
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (!file.type.startsWith("image/")) {
+            setFormError("Please select a valid image file (JPG, PNG, GIF, etc.).");
+            e.target.value = "";
+            setEditPhoto(null);
+            return;
         }
+        setFormError(null);
+        setEditPhoto(file);
     };
 
     const handleAddUser = async (e: React.FormEvent) => {
@@ -196,6 +212,7 @@ export default function Users() {
             const data = new FormData();
             data.append("fname", editFormData.fname);
             data.append("lname", editFormData.lname);
+            data.append("email", editFormData.email);
             data.append("phone", editFormData.phone);
             
             if (editFormData.password) {
@@ -485,6 +502,10 @@ export default function Users() {
                                     <Label htmlFor="edit-lname">Last Name</Label>
                                     <Input id="edit-lname" required value={editFormData.lname} onChange={handleEditFormChange} />
                                 </div>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="edit-email">Email</Label>
+                                <Input id="edit-email" type="email" required value={editFormData.email} onChange={handleEditFormChange} />
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="edit-phone">Phone Number</Label>

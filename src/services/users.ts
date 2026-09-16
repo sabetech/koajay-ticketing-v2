@@ -20,11 +20,9 @@ export const userService = {
     },
 
     createUser: async (formData: FormData): Promise<void> => {
-        await api.post("/users/create", formData, {
-            headers: {
-                "Content-Type": "multipart/form-data",
-            },
-        });
+        // Do NOT set Content-Type manually: the api interceptor deletes it for
+        // FormData so the browser adds the correct multipart boundary.
+        await api.post("/users/create", formData);
     },
 
     deleteUser: async (id: number): Promise<void> => {
@@ -35,11 +33,7 @@ export const userService = {
         // multipart/form-data with PUT is not natively supported in some PHP environments
         // so we use POST with _method = PUT
         formData.append("_method", "PUT");
-        await api.post(`/users/${id}/edit`, formData, {
-            headers: {
-                "Content-Type": "multipart/form-data",
-            },
-        });
+        await api.post(`/users/${id}/edit`, formData);
     },
 
     restoreUser: async (id: number): Promise<void> => {

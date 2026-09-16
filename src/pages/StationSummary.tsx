@@ -3,6 +3,7 @@ import { format, setHours, setMinutes, setSeconds, startOfDay, endOfDay } from "
 import type { DateRange } from "react-day-picker";
 import { stationService } from "@/services/station";
 import type { StationSummaryItem } from "@/services/station";
+import { postpaidService } from "@/services/postpaid";
 import { ticketService } from "@/services/ticket";
 import type { Ticket } from "@/services/ticket";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -49,7 +50,7 @@ function groupByStation(items: StationSummaryItem[]): Map<string, StationSummary
     return map;
 }
 
-function groupByRateType(items: StationSummaryItem[]): RateGroup[] {
+function groupByRateType(items: StationSummaryItem[], paidAmountByRate?: Map<string, number>): RateGroup[] {
     const map = new Map<string, Map<string, { rate_id: string; title: string; icon: string; ticketCount: number; totalAmount: number }>>();
 
     for (const item of items) {
@@ -70,12 +71,21 @@ function groupByRateType(items: StationSummaryItem[]): RateGroup[] {
         }
         const entry = rateMap.get(key)!;
         entry.ticketCount += parseInt(item.ticket_count) || 0;
-        entry.totalAmount += parseFloat(item.total_amount) || 0;
+        // Postpaid amounts are resolved from paid tickets only (see paidAmountByRate
+        // override below). Keep counting tickets, but don't sum the gross total here.
+        if (rateType !== "postpaid") {
+            entry.totalAmount += parseFloat(item.total_amount) || 0;
+        }
     }
 
     const groups: RateGroup[] = [];
     for (const [rateType, rateMap] of map) {
         const itemsArr = Array.from(rateMap.entries()).map(([, v]) => v);
+        if (rateType === "postpaid" && paidAmountByRate) {
+            for (const item of itemsArr) {
+                item.totalAmount = paidAmountByRate.get(item.rate_id.toString()) ?? 0;
+            }
+        }
         groups.push({
             rateType,
             items: itemsArr,
@@ -248,6 +258,7 @@ export default function StationSummary() {
     const [selectedStation, setSelectedStation] = useState<string | null>(null);
     const [queryFrom, setQueryFrom] = useState("");
     const [queryTo, setQueryTo] = useState("");
+    const [paidAmountByRate, setPaidAmountByRate] = useState<Map<string, number>>(new Map());
 
     const stations = useMemo(() => groupByStation(data), [data]);
     const stationNames = useMemo(() => Array.from(stations.keys()), [stations]);
@@ -267,7 +278,26 @@ export default function StationSummary() {
                 const to = formatDateParam(toDate);
                 setQueryFrom(from);
                 setQueryTo(to);
-                const result = await stationService.getStationSummary(from, to);
+                const [result, postpaidTickets] = await Promise.all([
+                    stationService.getStationSummary(from, to),
+                    postpaidService.getTickets({ from, to }).catch((err) => {
+                        console.error("Failed to fetch postpaid paid amounts:", err);
+                        return [];
+                    }),
+                ]);
+                const paidMap = new Map<string, number>();
+                for (const ticket of postpaidTickets) {
+                    const isPaid =
+                        ticket.paid === 1 ||
+                        ticket.paid === "1" ||
+                        ticket.paid === true ||
+                        ticket.paid === "true";
+                    if (!isPaid) continue;
+                    const key = ticket.rate_id?.toString() ?? "";
+                    if (!key) continue;
+                    paidMap.set(key, (paidMap.get(key) ?? 0) + (parseFloat(ticket.amount as string) || 0));
+                }
+                setPaidAmountByRate(paidMap);
                 setData(result);
                 if (result.length > 0 && !selectedStation) {
                     const names = Array.from(groupByStation(result).keys());
@@ -294,7 +324,7 @@ export default function StationSummary() {
 
     const getStationGroups = (stationName: string): RateGroup[] => {
         const stationData = stations.get(stationName) || [];
-        return groupByRateType(stationData);
+        return groupByRateType(stationData, paidAmountByRate);
     };
 
     return (
