@@ -49,6 +49,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, Ban } from "lucide-react";
+import ReassignStationDialog from "@/components/ReassignStationDialog";
 import { ticketService } from "@/services/ticket";
 import { ratesService } from "@/services/rates";
 import type { Rate } from "@/services/rates";
@@ -150,7 +151,7 @@ function applyTime(date: Date, time: string): Date {
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
-function AgentProfileCard({ agent }: { agent: Agent }) {
+function AgentProfileCard({ agent, onReassign }: { agent: Agent; onReassign: () => void }) {
     const imageUrl = getAgentImageUrl(agent.photo);
     const fullName = `${agent.fname} ${agent.lname}`.trim();
     const initials = `${agent.fname?.[0] ?? ""}${agent.lname?.[0] ?? ""}`.toUpperCase();
@@ -176,6 +177,9 @@ function AgentProfileCard({ agent }: { agent: Agent }) {
                         {stationName}
                     </p>
                 </div>
+                <Button variant="outline" size="sm" onClick={onReassign}>
+                    Reassign station
+                </Button>
             </CardContent>
         </Card>
     );
@@ -294,6 +298,7 @@ export default function AgentDetail() {
     const [allAgents, setAllAgents] = useState<Agent[]>([]);
     const [isUpdating, setIsUpdating] = useState(false);
     const [notification, setNotification] = useState<{ message: string, type: "success" | "error" } | null>(null);
+    const [isReassignOpen, setIsReassignOpen] = useState(false);
 
     const totals = useMemo(() => ({
         count: tickets.length,
@@ -417,8 +422,18 @@ export default function AgentDetail() {
                             </CardContent>
                         </Card>
                     ) : agent ? (
-                        <AgentProfileCard agent={agent} />
+                        <AgentProfileCard agent={agent} onReassign={() => setIsReassignOpen(true)} />
                     ) : null}
+                    <ReassignStationDialog
+                        agent={agent}
+                        open={isReassignOpen}
+                        onOpenChange={setIsReassignOpen}
+                        onSuccess={(station) =>
+                            setAgent((prev) =>
+                                prev ? { ...prev, stationInfo: { id: station.id, name: station.name } } : prev
+                            )
+                        }
+                    />
                 </div>
 
                 {/* ── Right: Date picker + panels ── */}

@@ -1,5 +1,6 @@
 import api from "./api";
 import type { Rate } from "./rates";
+import type { Station } from "./station";
 
 export interface Agent {
     id: number;
@@ -73,6 +74,10 @@ export const getAgentImageUrl = (profilePic: string | null): string | null => {
 
 let cachedAgents: Agent[] | null = null;
 
+export const clearAgentCache = (): void => {
+    cachedAgents = null;
+};
+
 export const agentService = {
     getAllAgents: async (): Promise<Agent[]> => {
         if (cachedAgents) return cachedAgents;
@@ -102,5 +107,15 @@ export const agentService = {
             agentId: agentId.toString(),
             rateId: rateId.toString(),
         });
+    },
+
+    reassignStation: async (agentId: number, stationId: number): Promise<Station> => {
+        const response = await api.put<{
+            success: boolean;
+            data: Station;
+            message: string;
+        }>(`/agent/${agentId}/station`, { station_id: stationId });
+        clearAgentCache();
+        return response.data.data;
     },
 };

@@ -41,7 +41,10 @@ import {
 import { Search, Edit, Trash2, UserPlus, Loader2, RotateCcw } from "lucide-react";
 
 import { userService, type User } from "@/services/users";
+import { agentService } from "@/services/agent";
+import { stationService, type Station } from "@/services/station";
 import { getImageUrl } from "@/lib/utils";
+import { toast } from "sonner";
 
 export default function Users() {
     const [users, setUsers] = useState<User[]>([]);
@@ -59,8 +62,11 @@ export default function Users() {
         password: "",
         phone: "",
         role: "agent", // Default to Agent
+        stationId: "",
     });
     const [selectedPhoto, setSelectedPhoto] = useState<File | null>(null);
+    const [stations, setStations] = useState<Station[]>([]);
+    const [agentStations, setAgentStations] = useState<Record<number, string>>({});
 
     // Deletion State
     const [userToDelete, setUserToDelete] = useState<User | null>(null);
@@ -75,14 +81,25 @@ export default function Users() {
         email: "",
         phone: "",
         password: "",
+        stationId: "",
     });
     const [editPhoto, setEditPhoto] = useState<File | null>(null);
 
     const fetchUsers = async () => {
         setLoading(true);
         try {
-            const data = await userService.getUsers();
-            setUsers(data);
+            const [userData, agentData] = await Promise.all([
+                userService.getUsers(),
+                agentService.getAllAgents().catch(() => []),
+            ]);
+            setUsers(userData);
+            const stationMap: Record<number, string> = {};
+            for (const agent of agentData) {
+                const name =
+                    agent.station_user?.station?.name ?? agent.stationInfo?.name ?? agent.station_name;
+                if (name) stationMap[agent.id] = name;
+            }
+            setAgentStations(stationMap);
         } catch (error) {
             console.error("Failed to fetch users:", error);
         } finally {
@@ -98,14 +115,29 @@ export default function Users() {
                 email: userToEdit.email || "",
                 phone: userToEdit.phone || "",
                 password: "", // Always empty initially for security
+                stationId: "",
             });
             setEditPhoto(null);
             setFormError(null);
+            // Pre-fill station from known agent assignments
+            agentService
+                .getAllAgents()
+                .then((agents) => {
+                    const match = agents.find((a) => a.id === userToEdit.id);
+                    if (match?.stationInfo?.id) {
+                        setEditFormData((prev) => ({ ...prev, stationId: String(match.stationInfo!.id) }));
+                    }
+                })
+                .catch(() => undefined);
         }
     }, [userToEdit]);
 
     useEffect(() => {
         fetchUsers();
+        stationService
+            .getStations()
+            .then(setStations)
+            .catch((error) => console.error("Failed to fetch stations:", error));
     }, []);
 
     const handleFormChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -173,8 +205,25 @@ export default function Users() {
 
             await userService.createUser(data);
 
+            // If an agent with a station was created, assign the station.
+            // createUser returns void, so resolve the new user by email.
+            if ((formData.role === "agent" || formData.role === "5") && formData.stationId) {
+                try {
+                    const refreshed = await userService.getUsers();
+                    const created = refreshed.find(
+                        (u) => u.email?.toLowerCase() === formData.email.toLowerCase()
+                    );
+                    if (created) {
+                        await agentService.reassignStation(created.id, Number(formData.stationId));
+                    }
+                } catch (assignError) {
+                    console.error("User created but station assignment failed:", assignError);
+                    toast.error("User created, but station assignment failed. Reassign from the Agents page.");
+                }
+            }
+
             setIsAddUserModalOpen(false);
-            setFormData({ fname: "", lname: "", email: "", password: "", phone: "", role: "agent" });
+            setFormData({ fname: "", lname: "", email: "", password: "", phone: "", role: "agent", stationId: "" });
             setSelectedPhoto(null);
             fetchUsers();
         } catch (error: any) {
@@ -224,6 +273,15 @@ export default function Users() {
             }
 
             await userService.updateUser(userToEdit.id, data);
+
+            if (editFormData.stationId) {
+                try {
+                    await agentService.reassignStation(userToEdit.id, Number(editFormData.stationId));
+                } catch (assignError) {
+                    console.error("User updated but station reassignment failed:", assignError);
+                    toast.error("User updated, but station reassignment failed.");
+                }
+            }
 
             setUserToEdit(null);
             fetchUsers();
@@ -351,6 +409,26 @@ export default function Users() {
                                         <Input id="photo" type="file" accept="image/*" onChange={handlePhotoChange} className="text-xs pt-1.5" />
                                     </div>
                                 </div>
+                                {(formData.role === "agent" || formData.role === "5") && (
+                                    <div className="space-y-2">
+                                        <Label>Station</Label>
+                                        <Select
+                                            value={formData.stationId}
+                                            onValueChange={(value) => setFormData(prev => ({ ...prev, stationId: value }))}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select station (optional)" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {stations.map((station) => (
+                                                    <SelectItem key={station.id} value={String(station.id)}>
+                                                        {station.name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                )}
 
                                 {formData.fname && formData.lname && (
                                     <div className="text-[10px] text-muted-foreground bg-muted/50 p-2 rounded italic">
@@ -394,13 +472,14 @@ export default function Users() {
                                     <TableHead>Name</TableHead>
                                     <TableHead>Email</TableHead>
                                     <TableHead>Role</TableHead>
+                                    <TableHead>Station</TableHead>
                                     <TableHead className="text-right">Actions</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {loading ? (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="h-24 text-center">
+                                        <TableCell colSpan={6} className="h-24 text-center">
                                             <div className="flex items-center justify-center gap-2">
                                                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                                                 <span>Loading users...</span>
@@ -409,7 +488,7 @@ export default function Users() {
                                     </TableRow>
                                 ) : filteredUsers.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                                        <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                                             No users found for the selected criteria.
                                         </TableCell>
                                     </TableRow>
@@ -439,6 +518,9 @@ export default function Users() {
                                                 <Badge variant="secondary" className="capitalize font-medium">
                                                     {user.roles?.[0]?.name || "User"}
                                                 </Badge>
+                                            </TableCell>
+                                            <TableCell className="text-sm text-muted-foreground">
+                                                {agentStations[user.id] ?? "—"}
                                             </TableCell>
                                             <TableCell className="text-right">
                                                 <div className="flex justify-end gap-2">
@@ -518,6 +600,24 @@ export default function Users() {
                             <div className="space-y-2">
                                 <Label htmlFor="edit-photo">Profile Image (optional)</Label>
                                 <Input id="edit-photo" type="file" accept="image/*" onChange={handleEditPhotoChange} className="text-xs pt-1.5" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Station (agents only)</Label>
+                                <Select
+                                    value={editFormData.stationId}
+                                    onValueChange={(value) => setEditFormData(prev => ({ ...prev, stationId: value }))}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select station to reassign (optional)" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {stations.map((station) => (
+                                            <SelectItem key={station.id} value={String(station.id)}>
+                                                {station.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
                         </div>
                         <DialogFooter>

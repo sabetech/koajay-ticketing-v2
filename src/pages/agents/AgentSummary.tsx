@@ -1,12 +1,20 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { agentService, getAgentImageUrl } from "@/services/agent";
+import { agentService, clearAgentCache, getAgentImageUrl } from "@/services/agent";
 import type { Agent } from "@/services/agent";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { MapPin } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ArrowLeftRight, MapPin } from "lucide-react";
+import ReassignStationDialog from "@/components/ReassignStationDialog";
 
-function AgentCard({ agent }: { agent: Agent }) {
+function AgentCard({
+    agent,
+    onReassign,
+}: {
+    agent: Agent;
+    onReassign: (agent: Agent) => void;
+}) {
     const navigate = useNavigate();
     const imageUrl = getAgentImageUrl(agent.photo);
     const fullName = `${agent.fname} ${agent.lname}`.trim();
@@ -19,8 +27,21 @@ function AgentCard({ agent }: { agent: Agent }) {
             tabIndex={0}
             onClick={() => navigate(`/agents/${agent.id}`)}
             onKeyDown={(e) => e.key === "Enter" && navigate(`/agents/${agent.id}`)}
-            className="flex flex-col items-center gap-3 rounded-xl border bg-card p-5 text-center shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer"
+            className="relative flex flex-col items-center gap-3 rounded-xl border bg-card p-5 text-center shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer"
         >
+            <Button
+                variant="ghost"
+                size="icon"
+                title="Reassign station"
+                aria-label={`Reassign ${fullName} to another station`}
+                className="absolute right-2 top-2 h-7 w-7"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onReassign(agent);
+                }}
+            >
+                <ArrowLeftRight className="h-3.5 w-3.5 text-muted-foreground" />
+            </Button>
             <Avatar className="h-20 w-20 ring-2 ring-primary/20">
                 <AvatarImage
                     src={imageUrl ?? undefined}
@@ -59,21 +80,23 @@ export default function AgentSummary() {
     const [agents, setAgents] = useState<Agent[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [agentToReassign, setAgentToReassign] = useState<Agent | null>(null);
+
+    const fetchAgents = async () => {
+        try {
+            setLoading(true);
+            clearAgentCache();
+            const data = await agentService.getAllAgents();
+            setAgents(data);
+        } catch (err) {
+            console.error("Failed to fetch agents:", err);
+            setError("Failed to load agents. Please try again.");
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
-        const fetchAgents = async () => {
-            try {
-                setLoading(true);
-                const data = await agentService.getAllAgents();
-                setAgents(data);
-            } catch (err) {
-                console.error("Failed to fetch agents:", err);
-                setError("Failed to load agents. Please try again.");
-            } finally {
-                setLoading(false);
-            }
-        };
-
         fetchAgents();
     }, []);
 
@@ -99,9 +122,26 @@ export default function AgentSummary() {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                 {loading
                     ? Array.from({ length: 12 }).map((_, i) => <AgentCardSkeleton key={i} />)
-                    : agents.map((agent) => <AgentCard key={agent.id} agent={agent} />)
+                    : agents.map((agent) => (
+                        <AgentCard key={agent.id} agent={agent} onReassign={setAgentToReassign} />
+                    ))
                 }
             </div>
+
+            <ReassignStationDialog
+                agent={agentToReassign}
+                open={!!agentToReassign}
+                onOpenChange={(open) => !open && setAgentToReassign(null)}
+                onSuccess={(station) => {
+                    setAgents((prev) =>
+                        prev.map((a) =>
+                            a.id === agentToReassign?.id
+                                ? { ...a, stationInfo: { id: station.id, name: station.name } }
+                                : a
+                        )
+                    );
+                }}
+            />
 
             {!loading && agents.length === 0 && !error && (
                 <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
