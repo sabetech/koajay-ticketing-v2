@@ -3,7 +3,11 @@ import api from "./api";
 export interface Station {
     id: number;
     name: string;
-    location: string;
+    description: string | null;
+    assembly: string | null;
+    created_at: string;
+    updated_at: string;
+    deleted_at: string | null;
 }
 
 export interface StationSummaryItem {
@@ -32,7 +36,7 @@ export interface StationsResponse {
 
 export const stationService = {
     async getStations(): Promise<Station[]> {
-        const response = await api.get<StationsResponse>("/stations");
+        const response = await api.get<StationsResponse>("/station/all");
         return response.data.data;
     },
 
