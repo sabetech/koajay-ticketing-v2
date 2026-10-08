@@ -1,6 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { format, setHours, setMinutes, setSeconds, startOfDay, endOfDay } from "date-fns";
-import type { DateRange } from "react-day-picker";
+import { format } from "date-fns";
 import { stationService } from "@/services/station";
 import type { StationSummaryItem } from "@/services/station";
 import { postpaidService } from "@/services/postpaid";
@@ -9,11 +8,22 @@ import type { Ticket } from "@/services/ticket";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { CalendarIcon, Ticket as TicketIcon, DollarSign, ChevronDown } from "lucide-react";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { Search, Loader2, Ticket as TicketIcon, DollarSign, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const MONTHS = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+];
+const YEARS = Array.from({ length: 7 }, (_, i) => 2024 + i);
 
 interface RateGroup {
     rateType: string;
@@ -102,13 +112,23 @@ function groupByRateType(items: StationSummaryItem[], paidAmountByRate?: Map<str
     });
 }
 
-function formatDateParam(d: Date): string {
-    return format(d, "yyyy-MM-dd HH:mm:ss");
+/** Full-month range: from = 1st day 00:00:00, to = last day of To-month 23:59:59 */
+function buildMonthRange(
+    fromMonth: string,
+    fromYear: string,
+    toMonth: string,
+    toYear: string
+): { from: string; to: string } {
+    const from = format(new Date(parseInt(fromYear), parseInt(fromMonth), 1), "yyyy-MM-dd");
+    const to = format(new Date(parseInt(toYear), parseInt(toMonth) + 1, 0), "yyyy-MM-dd");
+    return { from: `${from} 00:00:00`, to: `${to} 23:59:59` };
 }
 
-function applyTime(date: Date, time: string): Date {
-    const [h, m] = time.split(":").map(Number);
-    return setSeconds(setMinutes(setHours(date, h || 0), m || 0), 0);
+function currentMonthRange(): { from: string; to: string } {
+    const now = new Date();
+    const month = now.getMonth().toString();
+    const year = now.getFullYear().toString();
+    return buildMonthRange(month, year, month, year);
 }
 
 function RateAccordionRow({
@@ -245,20 +265,33 @@ function RateTypePanel({ group, dateRange }: { group: RateGroup; dateRange: stri
 }
 
 export default function StationSummary() {
-    const [date, setDate] = useState<DateRange>({
-        from: startOfDay(new Date()),
-        to: endOfDay(new Date()),
-    });
-    const [fromTime, setFromTime] = useState("00:00");
-    const [toTime, setToTime] = useState("23:59");
+    const now = new Date();
+
+    // Pending (unapplied) month/year selection
+    const [fromMonth, setFromMonth] = useState<string>(now.getMonth().toString());
+    const [fromYear, setFromYear] = useState<string>(now.getFullYear().toString());
+    const [toMonth, setToMonth] = useState<string>(now.getMonth().toString());
+    const [toYear, setToYear] = useState<string>(now.getFullYear().toString());
 
     const [data, setData] = useState<StationSummaryItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selectedStation, setSelectedStation] = useState<string | null>(null);
-    const [queryFrom, setQueryFrom] = useState("");
-    const [queryTo, setQueryTo] = useState("");
+    // Applied range — the fetch effect depends on these
+    const [queryFrom, setQueryFrom] = useState<string>(() => currentMonthRange().from);
+    const [queryTo, setQueryTo] = useState<string>(() => currentMonthRange().to);
     const [paidAmountByRate, setPaidAmountByRate] = useState<Map<string, number>>(new Map());
+
+    const pendingRange = useMemo(
+        () => buildMonthRange(fromMonth, fromYear, toMonth, toYear),
+        [fromMonth, fromYear, toMonth, toYear]
+    );
+    const isRangeChanged = pendingRange.from !== queryFrom || pendingRange.to !== queryTo;
+
+    const applyFilters = () => {
+        setQueryFrom(pendingRange.from);
+        setQueryTo(pendingRange.to);
+    };
 
     const stations = useMemo(() => groupByStation(data), [data]);
     const stationNames = useMemo(() => Array.from(stations.keys()), [stations]);
@@ -271,16 +304,9 @@ export default function StationSummary() {
             try {
                 setLoading(true);
                 setError(null);
-                if (!date.from) return;
-                const fromDate = applyTime(date.from, fromTime);
-                const toDate = applyTime(date.to ?? date.from, toTime);
-                const from = formatDateParam(fromDate);
-                const to = formatDateParam(toDate);
-                setQueryFrom(from);
-                setQueryTo(to);
                 const [result, postpaidTickets] = await Promise.all([
-                    stationService.getStationSummary(from, to),
-                    postpaidService.getTickets({ from, to }).catch((err) => {
+                    stationService.getStationSummary(queryFrom, queryTo),
+                    postpaidService.getTickets({ from: queryFrom, to: queryTo }).catch((err) => {
                         console.error("Failed to fetch postpaid paid amounts:", err);
                         return [];
                     }),
@@ -314,7 +340,7 @@ export default function StationSummary() {
         };
 
         fetchData();
-    }, [date, fromTime, toTime]);
+    }, [queryFrom, queryTo]);
 
     useEffect(() => {
         if (stationNames.length > 0 && !stationNames.includes(selectedStation || "")) {
@@ -338,66 +364,77 @@ export default function StationSummary() {
                 )}
             </div>
 
-            <div className="flex items-center gap-2">
-                <Popover>
-                    <PopoverTrigger asChild>
-                        <Button
-                            variant="outline"
-                            className={cn(
-                                "w-full max-w-lg justify-start text-left font-normal",
-                                !date && "text-muted-foreground"
-                            )}
-                        >
-                            <CalendarIcon className="mr-2 h-4 w-4 flex-shrink-0" />
-                            {date?.from ? (
-                                <>
-                                    {format(date.from, "MMM dd, yyyy")} {fromTime}
-                                    {" – "}
-                                    {date.to ? format(date.to, "MMM dd, yyyy") : format(date.from, "MMM dd, yyyy")} {toTime}
-                                </>
-                            ) : (
-                                <span>Pick a date &amp; time range</span>
-                            )}
-                        </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                            initialFocus
-                            mode="range"
-                            defaultMonth={date?.from}
-                            selected={date}
-                            onSelect={(range) => {
-                                if (range?.from) {
-                                    setDate({
-                                        from: range.from,
-                                        to: range.to ?? range.from,
-                                    });
-                                }
-                            }}
-                            numberOfMonths={2}
-                        />
-                        <div className="border-t p-3 flex items-center gap-4 bg-muted/30">
-                            <div className="flex flex-col gap-1 flex-1">
-                                <label className="text-xs font-medium text-muted-foreground">From time</label>
-                                <input
-                                    type="time"
-                                    value={fromTime}
-                                    onChange={(e) => setFromTime(e.target.value)}
-                                    className="text-sm border rounded-md px-2 py-1.5 bg-background w-full"
-                                />
-                            </div>
-                            <div className="flex flex-col gap-1 flex-1">
-                                <label className="text-xs font-medium text-muted-foreground">To time</label>
-                                <input
-                                    type="time"
-                                    value={toTime}
-                                    onChange={(e) => setToTime(e.target.value)}
-                                    className="text-sm border rounded-md px-2 py-1.5 bg-background w-full"
-                                />
-                            </div>
-                        </div>
-                    </PopoverContent>
-                </Popover>
+            <div className="flex flex-wrap items-center gap-6">
+                <div className="flex items-center gap-4 bg-muted/30 p-2 px-3 rounded-lg border border-dashed">
+                    {/* From */}
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] uppercase font-bold text-muted-foreground">From:</span>
+                        <Select value={fromMonth} onValueChange={setFromMonth}>
+                            <SelectTrigger className="w-[125px] h-8 text-xs">
+                                <SelectValue placeholder="Month" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {MONTHS.map((month, index) => (
+                                    <SelectItem key={`from-${month}`} value={index.toString()}>
+                                        {month}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <Select value={fromYear} onValueChange={setFromYear}>
+                            <SelectTrigger className="w-[85px] h-8 text-xs">
+                                <SelectValue placeholder="Year" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {YEARS.map(year => (
+                                    <SelectItem key={`from-${year}`} value={year.toString()}>
+                                        {year}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div className="w-[1px] h-4 bg-border" />
+
+                    {/* To */}
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] uppercase font-bold text-muted-foreground">To:</span>
+                        <Select value={toMonth} onValueChange={setToMonth}>
+                            <SelectTrigger className="w-[125px] h-8 text-xs">
+                                <SelectValue placeholder="Month" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {MONTHS.map((month, index) => (
+                                    <SelectItem key={`to-${month}`} value={index.toString()}>
+                                        {month}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <Select value={toYear} onValueChange={setToYear}>
+                            <SelectTrigger className="w-[85px] h-8 text-xs">
+                                <SelectValue placeholder="Year" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {YEARS.map(year => (
+                                    <SelectItem key={`to-${year}`} value={year.toString()}>
+                                        {year}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </div>
+
+                <Button
+                    onClick={applyFilters}
+                    disabled={loading || !isRangeChanged}
+                    className="h-10 px-6 gap-2"
+                >
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                    Apply Filters
+                </Button>
             </div>
 
             {error && (
