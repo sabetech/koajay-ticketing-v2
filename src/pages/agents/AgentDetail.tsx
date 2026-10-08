@@ -84,6 +84,20 @@ const RATE_TYPE_COLORS: Record<string, string> = {
     postpaid: "bg-amber-500/10 text-amber-600 border-amber-200",
 };
 
+function isPaidFlag(value: string | number | boolean | undefined): boolean {
+    return value === 1 || value === "1" || value === true || value === "true";
+}
+
+function isPostpaidTicket(ticket: AgentDetailTicket): boolean {
+    return ticket.rate?.is_postpaid === "1";
+}
+
+/** Unpaid postpaid tickets count toward ticket totals but contribute 0 amount. */
+function countedAmount(ticket: AgentDetailTicket): number {
+    if (isPostpaidTicket(ticket) && !isPaidFlag(ticket.paid)) return 0;
+    return parseFloat(ticket.amount) || 0;
+}
+
 function groupTicketsByRateType(tickets: AgentDetailTicket[]): RateGroup[] {
     const map = new Map<string, Map<number, { rateTitle: string; rateIcon: string; count: number; totalAmount: number }>>();
 
@@ -116,7 +130,7 @@ function groupTicketsByRateType(tickets: AgentDetailTicket[]): RateGroup[] {
         }
         const entry = rateMap.get(rateId)!;
         entry.count += 1;
-        entry.totalAmount += parseFloat(ticket.amount) || 0;
+        entry.totalAmount += countedAmount(ticket);
     }
 
     const groups: RateGroup[] = [];
@@ -302,7 +316,7 @@ export default function AgentDetail() {
 
     const totals = useMemo(() => ({
         count: tickets.length,
-        amount: tickets.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0),
+        amount: tickets.reduce((sum, t) => sum + countedAmount(t), 0),
     }), [tickets]);
 
     useEffect(() => {
@@ -582,7 +596,26 @@ export default function AgentDetail() {
                                                             <TableCell className="font-medium">{ticket.title}</TableCell>
                                                             <TableCell>{ticket.rate?.title}</TableCell>
                                                             <TableCell>{ticket.car_number}</TableCell>
-                                                            <TableCell>GHS {ticket.amount}</TableCell>
+                                                            <TableCell>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="font-medium">
+                                                                        GHS {countedAmount(ticket).toFixed(2)}
+                                                                    </span>
+                                                                    {isPostpaidTicket(ticket) && (
+                                                                        <Badge
+                                                                            variant="outline"
+                                                                            className={cn(
+                                                                                "text-xs font-medium",
+                                                                                isPaidFlag(ticket.paid)
+                                                                                    ? "bg-emerald-500/10 text-emerald-600 border-emerald-200"
+                                                                                    : "bg-amber-500/10 text-amber-600 border-amber-200"
+                                                                            )}
+                                                                        >
+                                                                            {isPaidFlag(ticket.paid) ? "Paid" : "Pending"}
+                                                                        </Badge>
+                                                                    )}
+                                                                </div>
+                                                            </TableCell>
                                                             <TableCell>{format(new Date(ticket.issued_date_time), "MMM dd, yyyy HH:mm")}</TableCell>
                                                             <TableCell className="text-right">
                                                                 <div className="flex justify-end gap-2">

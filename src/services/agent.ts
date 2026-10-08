@@ -32,6 +32,7 @@ export interface AgentDetailTicket {
     id: number;
     title: string;
     amount: string;
+    paid: string | number | boolean;
     issued_date_time: string;
     car_number: string;
     rate: {
