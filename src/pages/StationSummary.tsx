@@ -25,6 +25,10 @@ const MONTHS = [
 ];
 const YEARS = Array.from({ length: 7 }, (_, i) => 2024 + i);
 
+function daysInMonth(year: number | string, month: number | string): number {
+    return new Date(parseInt(String(year)), parseInt(String(month)) + 1, 0).getDate();
+}
+
 interface RateGroup {
     rateType: string;
     items: {
@@ -112,15 +116,17 @@ function groupByRateType(items: StationSummaryItem[], paidAmountByRate?: Map<str
     });
 }
 
-/** Full-month range: from = 1st day 00:00:00, to = last day of To-month 23:59:59 */
-function buildMonthRange(
+/** Range from selected From-day start to To-day end */
+function buildRange(
     fromMonth: string,
     fromYear: string,
+    fromDay: string,
     toMonth: string,
-    toYear: string
+    toYear: string,
+    toDay: string
 ): { from: string; to: string } {
-    const from = format(new Date(parseInt(fromYear), parseInt(fromMonth), 1), "yyyy-MM-dd");
-    const to = format(new Date(parseInt(toYear), parseInt(toMonth) + 1, 0), "yyyy-MM-dd");
+    const from = format(new Date(parseInt(fromYear), parseInt(fromMonth), parseInt(fromDay)), "yyyy-MM-dd");
+    const to = format(new Date(parseInt(toYear), parseInt(toMonth), parseInt(toDay)), "yyyy-MM-dd");
     return { from: `${from} 00:00:00`, to: `${to} 23:59:59` };
 }
 
@@ -128,7 +134,8 @@ function currentMonthRange(): { from: string; to: string } {
     const now = new Date();
     const month = now.getMonth().toString();
     const year = now.getFullYear().toString();
-    return buildMonthRange(month, year, month, year);
+    const day = now.getDate().toString();
+    return buildRange(month, year, day, month, year, day);
 }
 
 function RateAccordionRow({
@@ -267,11 +274,24 @@ function RateTypePanel({ group, dateRange }: { group: RateGroup; dateRange: stri
 export default function StationSummary() {
     const now = new Date();
 
-    // Pending (unapplied) month/year selection
+    // Pending (unapplied) month/year/day selection
     const [fromMonth, setFromMonth] = useState<string>(now.getMonth().toString());
     const [fromYear, setFromYear] = useState<string>(now.getFullYear().toString());
+    const [fromDay, setFromDay] = useState<string>(now.getDate().toString());
     const [toMonth, setToMonth] = useState<string>(now.getMonth().toString());
     const [toYear, setToYear] = useState<string>(now.getFullYear().toString());
+    const [toDay, setToDay] = useState<string>(now.getDate().toString());
+
+    const fromDayCount = daysInMonth(fromYear, fromMonth);
+    const toDayCount = daysInMonth(toYear, toMonth);
+
+    // Clamp the day when its month/year changes (e.g. 31 → February)
+    useEffect(() => {
+        if (parseInt(fromDay) > fromDayCount) setFromDay(fromDayCount.toString());
+    }, [fromDayCount, fromDay]);
+    useEffect(() => {
+        if (parseInt(toDay) > toDayCount) setToDay(toDayCount.toString());
+    }, [toDayCount, toDay]);
 
     const [data, setData] = useState<StationSummaryItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -283,10 +303,11 @@ export default function StationSummary() {
     const [paidAmountByRate, setPaidAmountByRate] = useState<Map<string, number>>(new Map());
 
     const pendingRange = useMemo(
-        () => buildMonthRange(fromMonth, fromYear, toMonth, toYear),
-        [fromMonth, fromYear, toMonth, toYear]
+        () => buildRange(fromMonth, fromYear, fromDay, toMonth, toYear, toDay),
+        [fromMonth, fromYear, fromDay, toMonth, toYear, toDay]
     );
     const isRangeChanged = pendingRange.from !== queryFrom || pendingRange.to !== queryTo;
+    const isRangeInvalid = pendingRange.from > pendingRange.to;
 
     const applyFilters = () => {
         setQueryFrom(pendingRange.from);
@@ -369,6 +390,18 @@ export default function StationSummary() {
                     {/* From */}
                     <div className="flex items-center gap-2">
                         <span className="text-[10px] uppercase font-bold text-muted-foreground">From:</span>
+                        <Select value={fromDay} onValueChange={setFromDay}>
+                            <SelectTrigger className="w-[70px] h-8 text-xs">
+                                <SelectValue placeholder="Day" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {Array.from({ length: fromDayCount }, (_, i) => i + 1).map(day => (
+                                    <SelectItem key={`from-day-${day}`} value={day.toString()}>
+                                        {day}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                         <Select value={fromMonth} onValueChange={setFromMonth}>
                             <SelectTrigger className="w-[125px] h-8 text-xs">
                                 <SelectValue placeholder="Month" />
@@ -400,6 +433,18 @@ export default function StationSummary() {
                     {/* To */}
                     <div className="flex items-center gap-2">
                         <span className="text-[10px] uppercase font-bold text-muted-foreground">To:</span>
+                        <Select value={toDay} onValueChange={setToDay}>
+                            <SelectTrigger className="w-[70px] h-8 text-xs">
+                                <SelectValue placeholder="Day" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {Array.from({ length: toDayCount }, (_, i) => i + 1).map(day => (
+                                    <SelectItem key={`to-day-${day}`} value={day.toString()}>
+                                        {day}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                         <Select value={toMonth} onValueChange={setToMonth}>
                             <SelectTrigger className="w-[125px] h-8 text-xs">
                                 <SelectValue placeholder="Month" />
@@ -429,7 +474,7 @@ export default function StationSummary() {
 
                 <Button
                     onClick={applyFilters}
-                    disabled={loading || !isRangeChanged}
+                    disabled={loading || !isRangeChanged || isRangeInvalid}
                     className="h-10 px-6 gap-2"
                 >
                     {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
