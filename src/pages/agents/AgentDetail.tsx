@@ -11,7 +11,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, ArrowLeft, MapPin, Ticket, DollarSign, Edit2, Trash2 } from "lucide-react";
+import { CalendarIcon, ArrowLeft, MapPin, Ticket, DollarSign, Edit2, Trash2, Users } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import {
     Table,
@@ -314,10 +315,39 @@ export default function AgentDetail() {
     const [notification, setNotification] = useState<{ message: string, type: "success" | "error" } | null>(null);
     const [isReassignOpen, setIsReassignOpen] = useState(false);
 
+    // Bulk agent change state
+    const [selectedTickets, setSelectedTickets] = useState<Set<number>>(new Set());
+    const [isBulkAgentOpen, setIsBulkAgentOpen] = useState(false);
+    const [bulkAgentId, setBulkAgentId] = useState<string>("");
+    const [isBulkUpdating, setIsBulkUpdating] = useState(false);
+
     const totals = useMemo(() => ({
         count: tickets.length,
         amount: tickets.reduce((sum, t) => sum + countedAmount(t), 0),
     }), [tickets]);
+
+    const isAllSelected = tickets.length > 0 && selectedTickets.size === tickets.length;
+    const isSomeSelected = selectedTickets.size > 0 && selectedTickets.size < tickets.length;
+
+    const toggleTicketSelection = (ticketId: number) => {
+        setSelectedTickets(prev => {
+            const next = new Set(prev);
+            if (next.has(ticketId)) {
+                next.delete(ticketId);
+            } else {
+                next.add(ticketId);
+            }
+            return next;
+        });
+    };
+
+    const toggleSelectAll = () => {
+        if (isAllSelected) {
+            setSelectedTickets(new Set());
+        } else {
+            setSelectedTickets(new Set(tickets.map(t => t.id)));
+        }
+    };
 
     useEffect(() => {
         if (notification) {
@@ -357,6 +387,7 @@ export default function AgentDetail() {
                 setAgent(data.agent);
                 setTickets(data.tickets);
                 setGroups(groupTicketsByRateType(data.tickets));
+                setSelectedTickets(new Set());
             } catch (err) {
                 console.error("Failed to fetch agent detail:", err);
                 setError("Failed to load agent details. Please try again.");
@@ -374,6 +405,11 @@ export default function AgentDetail() {
             await ticketService.deleteTicket(ticketId);
             setTickets(prev => prev.filter(t => t.id !== ticketId));
             setGroups(groupTicketsByRateType(tickets.filter(t => t.id !== ticketId)));
+            setSelectedTickets(prev => {
+                const next = new Set(prev);
+                next.delete(ticketId);
+                return next;
+            });
             setNotification({ message: "Ticket deleted successfully", type: "success" });
         } catch (err) {
             console.error("Failed to delete ticket:", err);
@@ -409,6 +445,39 @@ export default function AgentDetail() {
             setNotification({ message: "Failed to update ticket", type: "error" });
         } finally {
             setIsUpdating(false);
+        }
+    };
+
+    const handleChangeAgentForSelected = async () => {
+        if (!bulkAgentId || selectedTickets.size === 0) return;
+        setIsBulkUpdating(true);
+        try {
+            const ticketIds = Array.from(selectedTickets);
+            await ticketService.bulkEditAgent(ticketIds, Number(bulkAgentId));
+
+            // Re-fetch data to reflect changes
+            const fromDate = applyTime(date.from!, fromTime);
+            const toDate = applyTime(date.to ?? date.from!, toTime);
+            const data = await agentService.getAgentDetail(
+                Number(id),
+                formatDateParam(fromDate),
+                formatDateParam(toDate)
+            );
+            setTickets(data.tickets);
+            setGroups(groupTicketsByRateType(data.tickets));
+
+            setIsBulkAgentOpen(false);
+            setSelectedTickets(new Set());
+            setBulkAgentId("");
+            setNotification({
+                message: `Agent changed for ${ticketIds.length} ticket(s)`,
+                type: "success",
+            });
+        } catch (err) {
+            console.error("Failed to change agent for selected tickets:", err);
+            setNotification({ message: "Failed to update agent for some tickets", type: "error" });
+        } finally {
+            setIsBulkUpdating(false);
         }
     };
 
@@ -574,14 +643,31 @@ export default function AgentDetail() {
 
                             {tickets.length > 0 && (
                                 <Card className="mt-4">
-                                    <CardHeader>
+                                    <CardHeader className="flex flex-row items-center justify-between space-y-0">
                                         <CardTitle className="text-lg">Tickets</CardTitle>
+                                        {selectedTickets.size > 0 && (
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setIsBulkAgentOpen(true)}
+                                            >
+                                                <Users className="mr-2 h-4 w-4" />
+                                                Change Agent ({selectedTickets.size})
+                                            </Button>
+                                        )}
                                     </CardHeader>
                                     <CardContent>
                                         <div className="max-h-[400px] overflow-y-auto">
                                             <Table>
                                                 <TableHeader>
                                                     <TableRow>
+                                                        <TableHead className="w-[50px]">
+                                                            <Checkbox
+                                                                checked={isAllSelected || (isSomeSelected ? "indeterminate" : false)}
+                                                                onCheckedChange={toggleSelectAll}
+                                                                aria-label="Select all"
+                                                            />
+                                                        </TableHead>
                                                         <TableHead>Ticket ID</TableHead>
                                                         <TableHead>Ticket Type</TableHead>
                                                         <TableHead>Car Number</TableHead>
@@ -592,7 +678,17 @@ export default function AgentDetail() {
                                                 </TableHeader>
                                                 <TableBody>
                                                     {tickets.map((ticket) => (
-                                                        <TableRow key={ticket.id}>
+                                                        <TableRow
+                                                            key={ticket.id}
+                                                            className={selectedTickets.has(ticket.id) ? "bg-muted/50" : ""}
+                                                        >
+                                                            <TableCell>
+                                                                <Checkbox
+                                                                    checked={selectedTickets.has(ticket.id)}
+                                                                    onCheckedChange={() => toggleTicketSelection(ticket.id)}
+                                                                    aria-label={`Select ticket ${ticket.title}`}
+                                                                />
+                                                            </TableCell>
                                                             <TableCell className="font-medium">{ticket.title}</TableCell>
                                                             <TableCell>{ticket.rate?.title}</TableCell>
                                                             <TableCell>{ticket.car_number}</TableCell>
@@ -785,6 +881,44 @@ export default function AgentDetail() {
                         >
                             {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                             Save Changes
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={isBulkAgentOpen} onOpenChange={setIsBulkAgentOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>Change Agent for {selectedTickets.size} Ticket(s)</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                            <Label htmlFor="bulk-agent">New Agent</Label>
+                            <Select value={bulkAgentId} onValueChange={setBulkAgentId}>
+                                <SelectTrigger id="bulk-agent">
+                                    <SelectValue placeholder="Select Agent" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {allAgents.map((agentOption) => (
+                                        <SelectItem key={agentOption.id} value={agentOption.id.toString()}>
+                                            {agentOption.fname} {agentOption.lname}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                            The selected tickets will be reassigned to the chosen agent.
+                        </p>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsBulkAgentOpen(false)}>Cancel</Button>
+                        <Button
+                            onClick={handleChangeAgentForSelected}
+                            disabled={isBulkUpdating || !bulkAgentId}
+                        >
+                            {isBulkUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Change Agent
                         </Button>
                     </DialogFooter>
                 </DialogContent>

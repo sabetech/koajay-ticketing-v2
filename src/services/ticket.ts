@@ -102,6 +102,13 @@ export const ticketService = {
         });
     },
 
+    bulkEditAgent: async (ticketIds: number[], agentId: number): Promise<void> => {
+        await api.post("/ticket/bulk-edit-agent", {
+            ticket_ids: ticketIds,
+            agent_id: agentId,
+        });
+    },
+
     updateTicket: async (ticketId: number, data: any): Promise<void> => {
         await api.post(`/ticket/${ticketId}/edit`, data);
     },
