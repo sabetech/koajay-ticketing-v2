@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { format } from "date-fns";
 import { stationService } from "@/services/station";
 import type { StationSummaryItem } from "@/services/station";
+import { getRateIconUrl } from "@/services/rates";
 import { postpaidService } from "@/services/postpaid";
 import { ticketService } from "@/services/ticket";
 import type { Ticket } from "@/services/ticket";
@@ -171,9 +172,9 @@ function RateAccordionRow({
                 onClick={handleToggle}
             >
                 <div className="flex items-center gap-3">
-                    {item.icon ? (
+                    {getRateIconUrl(item.icon) ? (
                         <img
-                            src={item.icon}
+                            src={getRateIconUrl(item.icon) ?? undefined}
                             alt={item.title}
                             className="h-8 w-8 rounded object-cover"
                             onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}

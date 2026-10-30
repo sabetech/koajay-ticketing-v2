@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { agentService, getAgentImageUrl } from "@/services/agent";
 import type { Agent, RateWithPivot } from "@/services/agent";
+import { getRateIconUrl } from "@/services/rates";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -184,9 +185,9 @@ export default function AgentRates() {
                                             <CardHeader className="p-4 pb-2">
                                                 <div className="flex items-start justify-between gap-2">
                                                     <div className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg bg-background border">
-                                                        {rate.icon ? (
+                                                        {getRateIconUrl(rate.icon) ? (
                                                             <img 
-                                                                src={rate.icon} 
+                                                                src={getRateIconUrl(rate.icon) ?? undefined}
                                                                 alt={rate.title} 
                                                                 className="h-7 w-7 object-contain"
                                                                 onError={(e) => (e.currentTarget.style.display = 'none')}

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { ratesService } from "@/services/rates";
+import { toast } from "sonner";
+import { ratesService, getRateIconUrl } from "@/services/rates";
 import type { Rate } from "@/services/rates";
+import { stationService, type Station } from "@/services/station";
 import {
     Table,
     TableBody,
@@ -18,8 +20,19 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Ticket, Edit, Trash2, Loader2 } from "lucide-react";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Ticket, Edit, Trash2, Loader2, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import AddRateDialog from "@/components/AddRateDialog";
 
 const RATE_TYPE_COLORS: Record<string, string> = {
     fixed: "bg-blue-500/10 text-blue-600 border-blue-200",
@@ -30,8 +43,12 @@ const RATE_TYPE_COLORS: Record<string, string> = {
 export default function Rates() {
     const [stationId, setStationId] = useState<string>("1");
     const [rates, setRates] = useState<Rate[]>([]);
+    const [stations, setStations] = useState<Station[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [isAddRateModalOpen, setIsAddRateModalOpen] = useState(false);
+    const [rateToDelete, setRateToDelete] = useState<Rate | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     const fetchRates = async (id: string) => {
         try {
@@ -47,9 +64,31 @@ export default function Rates() {
         }
     };
 
+    const handleDeleteRate = async () => {
+        if (!rateToDelete) return;
+        setIsDeleting(true);
+        try {
+            await ratesService.deleteRate(rateToDelete.id);
+            toast.success(`Rate "${rateToDelete.title}" deleted.`);
+            setRates((prev) => prev.filter((r) => r.id !== rateToDelete.id));
+            setRateToDelete(null);
+        } catch (err) {
+            console.error("Failed to delete rate:", err);
+            toast.error("Failed to delete rate. Please try again.");
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
     useEffect(() => {
         fetchRates(stationId);
     }, [stationId]);
+
+    useEffect(() => {
+        stationService.getStations()
+            .then(setStations)
+            .catch((err) => console.error("Failed to fetch stations:", err));
+    }, []);
 
     return (
         <div className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
@@ -66,14 +105,28 @@ export default function Rates() {
                                 <SelectValue placeholder="Select Station" />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="1">Achimota Transport Terminal</SelectItem>
-                                <SelectItem value="2">Circle Interchange Bus Terminal</SelectItem>
+                                {stations.map((station) => (
+                                    <SelectItem key={station.id} value={String(station.id)}>
+                                        {station.name}
+                                    </SelectItem>
+                                ))}
                             </SelectContent>
                         </Select>
                     </div>
-                    <Button>Add New Rate</Button>
+                    <Button onClick={() => setIsAddRateModalOpen(true)}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add New Rate
+                    </Button>
                 </div>
             </div>
+
+            <AddRateDialog
+                open={isAddRateModalOpen}
+                onOpenChange={setIsAddRateModalOpen}
+                stations={stations}
+                defaultStationId={stationId}
+                onSuccess={() => fetchRates(stationId)}
+            />
 
             <div className="rounded-md border bg-card">
                 <Table>
@@ -114,9 +167,9 @@ export default function Rates() {
                                 <TableRow key={rate.id}>
                                     <TableCell className="font-medium">{rate.title}</TableCell>
                                     <TableCell>
-                                        {rate.icon ? (
+                                        {getRateIconUrl(rate.icon) ? (
                                             <img
-                                                src={rate.icon}
+                                                src={getRateIconUrl(rate.icon) ?? undefined}
                                                 alt={rate.title}
                                                 className="h-8 w-8 rounded object-cover"
                                                 onError={(e) => {
@@ -160,12 +213,7 @@ export default function Rates() {
                                                 variant="ghost"
                                                 size="icon"
                                                 className="h-8 w-8 text-destructive"
-                                                onClick={() => {
-                                                    if (window.confirm("Are you sure you want to delete this rate?")) {
-                                                        // Handle delete (would normally call a service)
-                                                        setRates((prev) => prev.filter((r) => r.id !== rate.id));
-                                                    }
-                                                }}
+                                                onClick={() => setRateToDelete(rate)}
                                             >
                                                 <Trash2 className="h-4 w-4" />
                                             </Button>
@@ -177,6 +225,38 @@ export default function Rates() {
                     </TableBody>
                 </Table>
             </div>
+
+            <AlertDialog
+                open={!!rateToDelete}
+                onOpenChange={(open) => {
+                    if (!open && !isDeleting) setRateToDelete(null);
+                }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This action cannot be undone. This will delete the rate
+                            <span className="font-bold text-foreground mx-1">{rateToDelete?.title}</span>
+                            from this station.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleDeleteRate();
+                            }}
+                            disabled={isDeleting}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                            {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Delete Rate
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }
