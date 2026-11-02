@@ -33,6 +33,7 @@ import {
 import { Ticket, Edit, Trash2, Loader2, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import AddRateDialog from "@/components/AddRateDialog";
+import EditRateDialog from "@/components/EditRateDialog";
 
 const RATE_TYPE_COLORS: Record<string, string> = {
     fixed: "bg-blue-500/10 text-blue-600 border-blue-200",
@@ -48,6 +49,7 @@ export default function Rates() {
     const [error, setError] = useState<string | null>(null);
     const [isAddRateModalOpen, setIsAddRateModalOpen] = useState(false);
     const [rateToDelete, setRateToDelete] = useState<Rate | null>(null);
+    const [rateToEdit, setRateToEdit] = useState<Rate | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
 
     const fetchRates = async (id: string) => {
@@ -125,6 +127,16 @@ export default function Rates() {
                 onOpenChange={setIsAddRateModalOpen}
                 stations={stations}
                 defaultStationId={stationId}
+                onSuccess={() => fetchRates(stationId)}
+            />
+
+            <EditRateDialog
+                open={!!rateToEdit}
+                onOpenChange={(open) => {
+                    if (!open) setRateToEdit(null);
+                }}
+                stations={stations}
+                rate={rateToEdit}
                 onSuccess={() => fetchRates(stationId)}
             />
 
@@ -206,7 +218,12 @@ export default function Rates() {
                                     </TableCell>
                                     <TableCell className="text-right">
                                         <div className="flex justify-end gap-2">
-                                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8"
+                                                onClick={() => setRateToEdit(rate)}
+                                            >
                                                 <Edit className="h-4 w-4" />
                                             </Button>
                                             <Button

@@ -49,6 +49,14 @@ export const ratesService = {
         return response.data.data;
     },
 
+    updateRate: async (id: number, formData: FormData): Promise<Rate> => {
+        const response = await api.post<{ status: string; message: string; data: Rate }>(
+            `/rates/${id}`,
+            formData
+        );
+        return response.data.data;
+    },
+
     deleteRate: async (id: number): Promise<void> => {
         await api.delete(`/rates/${id}`);
     },
